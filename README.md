@@ -1,23 +1,23 @@
-# jobbot — швидкі пуші про нові вакансії (DOU + Djinni) + автоадаптація резюме
+# jobbot — fast push notifications for new jobs (DOU + Djinni) + resume auto-tailoring
 
-Python 3.8+. Читає публічні RSS (логін не потрібен). Одна зовнішня залежність — `reportlab`
-(генерація PDF).
+Python 3.8+. Reads public RSS feeds (no login needed). One external dependency — `reportlab`
+(PDF generation).
 
-## 1. Telegram-бот (2 хвилини)
-1. У Telegram напиши @BotFather → `/newbot` → отримаєш **токен**.
-2. Напиши своєму боту будь-що (`/start`).
-3. Відкрий `https://api.telegram.org/bot<ТОКЕН>/getUpdates` → знайди `"chat":{"id":123456789` — це **chat id**.
-4. **Захист:** бот відповідає тільки на `TELEGRAM_CHAT_ID`, вказаний у змінних середовища, — усі
-   команди/кнопки з будь-якого іншого чату (хтось написав боту напряму, знаючи його username)
-   повністю ігноруються, без жодної відповіді. Токен нікому іншому не давай — це єдине, що
-   прив'язує бота саме до тебе.
+## 1. Telegram bot (2 minutes)
+1. In Telegram, message @BotFather → `/newbot` → you'll get a **token**.
+2. Send your bot anything (`/start`).
+3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` → find `"chat":{"id":123456789` — this is your **chat id**.
+4. **Protection:** the bot only responds to `TELEGRAM_CHAT_ID` set in the environment variables —
+   all commands/buttons from any other chat (someone messaging the bot directly, knowing its
+   username) are completely ignored, with no response at all. Don't share the token with anyone —
+   it's the only thing that ties the bot specifically to you.
 
-## 2. Anthropic API-ключ (для кнопки «Адаптувати резюме»)
-1. Зайди на console.anthropic.com → створи API-ключ.
-2. Це окремий ключ від Claude.ai-підписки, оплата йде за токени (адаптація одного резюме —
-   частка центу).
+## 2. Anthropic API key (for the "Tailor resume" button)
+1. Go to console.anthropic.com → create an API key.
+2. This is a separate key from a Claude.ai subscription; billing is per-token (tailoring one
+   resume costs a fraction of a cent).
 
-## 3. Встановлення і запуск
+## 3. Installation and running
 ```bash
 pip install -r requirements.txt
 
@@ -25,221 +25,227 @@ export TELEGRAM_BOT_TOKEN="123:ABC..."
 export TELEGRAM_CHAT_ID="123456789"
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-python3 jobbot.py --test          # тестовий пуш
-python3 jobbot.py --dry-run       # побачити збіги без відправки
-python3 jobbot.py --loop 60       # працювати постійно: пуші + слухає кнопку "Адаптувати резюме"
+python3 jobbot.py --test          # test push
+python3 jobbot.py --dry-run       # see matches without sending
+python3 jobbot.py --loop 60       # run continuously: pushes + listens for the "Tailor resume" button
 ```
-Альтернатива/додатково для пушів: `export NTFY_TOPIC=мій-секретний-топік` + застосунок ntfy.
+Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy app.
 
-## 4. Як працюють кнопки «📄 Адаптувати резюме» і «✉️ Супровідний лист»
-- Під кожним пушем — кнопки. Натискаєш «Адаптувати резюме» → бот бере базове резюме під профіль
-  вакансії, надсилає його разом з текстом вакансії в Claude API, і за ~10-20 секунд повертає
-  готовий PDF у той самий чат.
-- «✉️ Супровідний лист» поруч — те саме, але генерує короткий (120-200 слів) cover letter під ту
-  саму вакансію і надсилає його звичайним текстовим повідомленням.
-- Обидві кнопки строго за фактами з базового резюме — нічого не вигадують.
-- Результат кешується під конкретну вакансію: повторний клік на ту саму кнопку показує вже
-  згенероване миттєво, **без** нового запиту в Claude API (економія і часу, і грошей). Під
-  результатом є окрема кнопка «🔄 Перегенерувати» — якщо хочеш саме новий варіант.
-- **Базове резюме:** `resumes.py` у репо — публічний приклад (вигаданий «Frontend»), бо репо
-  публічне. Своє справжнє резюме клади в `resumes_local.py` поруч (той самий формат
-  `BASE_RESUMES`) — цей файл у `.gitignore`, ніколи не комітиться, і `jobbot.py` автоматично
-  бере його замість `resumes.py`, якщо він є. Онови текст у `resumes_local.py`, коли змінюється
-  твій досвід.
-- Модель за замовчуванням: `claude-sonnet-5`. Змінити — змінна середовища `ANTHROPIC_MODEL`.
-- Без `ANTHROPIC_API_KEY` кнопки працюватимуть, але напишуть, що функція вимкнена — решта бота
-  (пуші) продовжить працювати як завжди.
+## 4. How the "📄 Tailor resume" and "✉️ Cover letter" buttons work
+- Every push comes with buttons. Tap "Tailor resume" → the bot takes the base resume matching
+  the job's profile, sends it together with the job text to the Claude API, and returns a
+  finished PDF to the same chat in ~10-20 seconds.
+- "✉️ Cover letter" next to it — same idea, but generates a short (120-200 word) cover letter
+  for the same job and sends it as a plain text message.
+- Both buttons stick strictly to facts from the base resume — nothing is invented.
+- The result is cached per job: clicking the same button again shows the already-generated
+  version instantly, **without** a new Claude API call (saves both time and money). There's a
+  separate "🔄 Regenerate" button under the result if you want a fresh version.
+- **Base resume:** the repo's `resumes.py` is a public example (a made-up "Frontend" one),
+  since the repo is public. Put your real resume in `resumes_local.py` next to it (same
+  `BASE_RESUMES` shape) — this file is in `.gitignore`, never committed, and `jobbot.py`
+  automatically uses it instead of `resumes.py` when it exists. Update the text in
+  `resumes_local.py` whenever your experience changes.
+- Default model: `claude-sonnet-5`. Change it via the `ANTHROPIC_MODEL` environment variable.
+- Without `ANTHROPIC_API_KEY` the buttons still work but reply that the feature is disabled —
+  the rest of the bot (pushes) keeps working as usual.
 
-## 5. Пріоритет, нагадування, статистика, дайджест
-- Вакансії зі словами AI agentic / Claude Code / AI-enabled тощо позначаються **⭐** і йдуть
-  у пуші першими в межах одного прогону.
-- Профіль **🍎 iOS** — завжди пріоритет (⭐), незалежно від ключових слів чи локації.
-- Для профілю **🔌 Embedded / Linux**: локація Львів або remote теж піднімає пріоритет (⭐) —
-  такі вакансії йдуть першими і в пуші, і в `/pending`/чекбоксах/картках. Київ — окремий бейдж
-  **🏙** (без пріоритету), щоб візуально відрізняти, не гублячи серед решти списку.
-- Зарплата (якщо є в заголовку/описі) показується прямо в пуші — фільтру за сумою немає.
-- Дедлайн подачі (якщо є в описі — «до 15.10», «дедлайн:», «apply by October 20» тощо)
-  показується поруч із зарплатою як «⏳ до …».
-- Кнопка **«✅ Відгукнувся»** під пушем позначає вакансію як закриту. Якщо не натиснеш —
-  через `REMINDER_HOURS` годин (за замовч. 20) бот сам нагадає. `REMINDER_HOURS=0` — вимкнути.
-- Кнопка **«🚫 Не цікаво»** поруч — прибирає вакансію з нагадувань і з «Очікують відгуку» в
-  `/stats`, але **не** рахує це відгуком (окрема лічилка «Не цікаво» в статистиці).
-- Назва компанії (best-effort із заголовка/опису вакансії) показується прямо в пуші, якщо вдалось
-  розпізнати.
-- Команда `/stats` у Telegram-чаті — скільки вакансій надіслано і скільки відгуків за 7 днів,
-  розбивка по профілях. Той самий текст бот сам шле раз на тиждень (за замовч. неділя, 19:00
-  за `TZ_NAME`) — див. `DIGEST_WEEKDAY`/`DIGEST_HOUR` нижче.
-- Вакансії, позначені в тексті як закриті («вакансія закрита», "position is closed" тощо) —
-  не показуються і не потрапляють у кеш/нагадування взагалі.
-- Якщо та сама вакансія є і на DOU, і на Djinni (однаковий заголовок) — приходить один пуш
-  замість двох, з поміткою «DOU + Djinni».
+## 5. Priority, reminders, stats, digest
+- Jobs with words like AI agentic / Claude Code / AI-enabled etc. get a **⭐** mark and are
+  sent first within a given run.
+- The **🍎 iOS** profile is always priority (⭐), regardless of keywords or location.
+- For the **🔌 Embedded / Linux** profile: a Lviv or remote location also raises priority (⭐) —
+  such jobs go first both in pushes and in `/pending`/checkboxes/cards. Kyiv gets a separate
+  badge **🏙** (no priority boost), so it's visually distinct without getting lost in the rest
+  of the list.
+- Salary (if present in the title/description) is shown right in the push — there's no
+  filtering by amount.
+- Application deadline (if mentioned in the description — "until Oct 15", "deadline:",
+  "apply by October 20" etc.) is shown next to the salary as "⏳ by …".
+- The **"✅ Applied"** button under a push marks the job as closed. If you don't tap it —
+  after `REMINDER_HOURS` hours (default 20) the bot reminds you itself. `REMINDER_HOURS=0`
+  disables this.
+- The **"🚫 Not interested"** button next to it removes the job from reminders and from
+  "Awaiting response" in `/stats`, but does **not** count it as applied (a separate "Not
+  interested" counter is kept in stats).
+- Company name (best-effort, parsed from the job title/description) is shown right in the
+  push whenever it could be recognized.
+- The `/stats` Telegram command — how many jobs were sent and how many you applied to over
+  7 days, broken down by profile. The bot sends the same text itself once a week (default
+  Sunday, 19:00 in `TZ_NAME`) — see `DIGEST_WEEKDAY`/`DIGEST_HOUR` below.
+- Jobs marked as closed in the text ("position closed", "вакансія закрита" etc.) aren't shown
+  and never enter the cache/reminders at all.
+- If the same job appears on both DOU and Djinni (identical title) — you get one push instead
+  of two, labeled "DOU + Djinni".
 
-## 6. Тихі години (не пушити вночі)
-- У вікні `QUIET_HOURS_START`..`QUIET_HOURS_END` (за замовч. 01:00–07:00 за `TZ_NAME`, за замовч.
-  `Europe/Kyiv`) нові вакансії не пушаться одразу, а копичаться.
-- Щойно тихі години закінчуються — бот сам шле «🌅 Нічний дайджест» одним повідомленням-заголовком
-  і далі звичайними пушами (з усіма кнопками) розсилає все накопичене.
-- Вимкнути тихі години повністю: `QUIET_HOURS_START` = `QUIET_HOURS_END` (наприклад, обидва `0`).
-- `--dry-run` завжди ігнорує тихі години — зручно для тестів.
+## 6. Quiet hours (no pushes at night)
+- Within the `QUIET_HOURS_START`..`QUIET_HOURS_END` window (default 01:00–07:00 in `TZ_NAME`,
+  default `Europe/Kyiv`), new jobs aren't pushed immediately — they pile up.
+- As soon as quiet hours end, the bot sends a "🌅 Night digest" as one header message and then
+  delivers everything that piled up as regular pushes (with all the buttons).
+- To disable quiet hours entirely: set `QUIET_HOURS_START` = `QUIET_HOURS_END` (e.g. both `0`).
+- `--dry-run` always ignores quiet hours — handy for testing.
 
-## 7. Бекап і відновлення стану (важливо на безкоштовному Render!)
-- **Безкоштовний Render Web Service не гарантує persistent disk** — диск може скидатись при
-  кожному redeploy/рестарті (і free-план сам засинає й перезапускається після періоду без
-  трафіку). Без бекапу це втрата всієї історії («seen»/«jobs»/статистика відгуків) і повторний
-  спам уже баченими вакансіями — саме тому вакансії в `/pending` могли завжди показувати
-  «0 год тому»: диск скидався, і бот пушив їх заново.
-- Бот сам шле `state.json` як файл у той самий Telegram-чат раз на `BACKUP_INTERVAL_HOURS` годин
-  (за замовч. 24) і за командою `/backup` — коли завгодно вручну. Кожен надісланий бекап бот
-  одразу **закріплює** в чаті (`pinChatMessage`).
-- **Автовідновлення при старті** — коли бот запускається (`--loop`) і локальний `state.json`
-  порожній (типова ситуація після скидання диску на Render Free), він сам перевіряє закріплене
-  повідомлення в чаті (`getChat` → `pinned_message` — це переживає рестарт, на відміну від
-  `getUpdates`), і якщо це валідний бекап — автоматично відновлює з нього стан, без жодних дій
-  вручну. Якщо локальний стан уже не порожній (диск не скидався) — автовідновлення нічого не
-  чіпає.
-- **Ручне відновлення** — так само працює: перешли файл (`state_backup.json`) назад боту в чат
-  у будь-який момент. Бот впізнає його за іменем, перевіряє, що це справді валідний бекап (є поля
-  `jobs`/`seen`), і лише тоді підмінює поточний `state.json`. Сторонні файли ігноруються,
-  зіпсований JSON — відхиляється з поясненням, поточний стан при цьому не чіпається.
-- Якщо на Render усе-таки є платний persistent disk (`JOBBOT_STATE=/data/state.json` на
-  примонтованому диску) — бекап/автовідновлення в Telegram усе одно не завадять як другий рівень
-  захисту.
-- `BACKUP_INTERVAL_HOURS=0` — вимкнути автобекап (лишається лише ручний `/backup`; автовідновлення
-  при старті працює незалежно від цієї змінної, якщо є хоч якийсь закріплений бекап).
+## 7. Backup and state restore (important on Render Free!)
+- **Render's free Web Service doesn't guarantee a persistent disk** — the disk can be wiped on
+  every redeploy/restart (and the free plan itself goes to sleep and restarts after a period of
+  no traffic). Without a backup this means losing the entire history ("seen"/"jobs"/application
+  stats) and re-spamming jobs you've already seen — this is exactly why jobs in `/pending` could
+  always show "0h ago": the disk got wiped and the bot pushed them again.
+- The bot sends `state.json` as a file to the same Telegram chat every `BACKUP_INTERVAL_HOURS`
+  hours (default 24), and on the `/backup` command — manually, any time. Every backup sent is
+  immediately **pinned** in the chat (`pinChatMessage`).
+- **Auto-restore on startup** — when the bot starts (`--loop`) and the local `state.json` is
+  empty (the typical situation after a disk wipe on Render Free), it checks the pinned message
+  in the chat itself (`getChat` → `pinned_message` — this survives a restart, unlike
+  `getUpdates`), and if it's a valid backup — automatically restores state from it, with no
+  manual action needed. If the local state is already non-empty (the disk wasn't wiped) —
+  auto-restore doesn't touch anything.
+- **Manual restore** — works the same way: forward the file (`state_backup.json`) back to the
+  bot in the chat at any time. The bot recognizes it by name, checks that it's actually a valid
+  backup (has `jobs`/`seen` fields), and only then replaces the current `state.json`. Unrelated
+  files are ignored, broken JSON is rejected with an explanation, and the current state isn't
+  touched in that case.
+- If Render does have a paid persistent disk (`JOBBOT_STATE=/data/state.json` on a mounted
+  disk) — backup/auto-restore to Telegram still doesn't hurt as a second layer of protection.
+- `BACKUP_INTERVAL_HOURS=0` — disables auto-backup (only manual `/backup` remains; auto-restore
+  on startup works independently of this variable, as long as there's any pinned backup).
 
-## 7a. Налаштування через Telegram (без редеплою)
-- Команда `/settings` показує поточні значення 8 параметрів: `reminder_hours`,
+## 7a. Settings via Telegram (no redeploy needed)
+- The `/settings` command shows the current values of 8 parameters: `reminder_hours`,
   `quiet_hours_start`, `quiet_hours_end`, `stats_period_days`, `backup_interval_hours`,
-  `pending_list_limit`, `pending_cards_limit`, `seen_list_limit` — з поміткою «(змінено)» для тих,
-  що відрізняються від значення за замовчуванням (env-змінної чи вбудованого дефолту).
-- Команда `/set <ключ> <значення>`, наприклад `/set reminder_hours 12` або
-  `/set backup_interval_hours 0` — одразу змінює параметр без рестарту й редеплою. Некоректний
-  ключ, нечислове значення чи значення поза допустимим діапазоном (напр. тихі години поза 0-24)
-  бот відхилить з поясненням, не чіпаючи поточне налаштування.
-- Змінені через `/set` значення зберігаються в `state.json` (`settings`), а отже автоматично
-  переживають скидання диску на Render Free разом з рештою стану — через той самий
-  бекап/автовідновлення з розділу 7, без окремого механізму.
-- Env-змінна для параметра (наприклад `REMINDER_HOURS`) і далі задає початкове значення, поки
-  ніхто жодного разу не зробив `/set` для цього ключа; після першого `/set` саме збережене в
-  `state.json` значення має пріоритет, аж доки не буде змінено знову.
+  `pending_list_limit`, `pending_cards_limit`, `seen_list_limit` — marked "(changed)" for any
+  that differ from the default (env variable or built-in default).
+- The `/set <key> <value>` command, e.g. `/set reminder_hours 12` or
+  `/set backup_interval_hours 0` — changes the parameter immediately, no restart or redeploy
+  needed. An invalid key, a non-numeric value, or a value out of the allowed range (e.g. quiet
+  hours outside 0-24) is rejected with an explanation, leaving the current setting untouched.
+- Values changed via `/set` are stored in `state.json` (`settings`), so they automatically
+  survive a disk wipe on Render Free along with the rest of the state — through the same
+  backup/auto-restore from section 7, no separate mechanism needed.
+- The environment variable for a parameter (e.g. `REMINDER_HOURS`) still sets the initial value
+  until `/set` has been used for that key at least once; after the first `/set`, the value
+  stored in `state.json` takes priority until changed again.
 
-## 7b. /pending — чекбокси «не цікаво» прямо в списку, без переходів
-- `/pending` одразу шле ОДНЕ повідомлення зі списком кнопок ⬜/✅ — по одній на вакансію, без
-  проміжного кроку (раніше треба було спочатку тиснути окрему кнопку «Показати з чекбоксами»).
-  Тиснеш назву — вона одразу перемикається на ✅ і вакансія зникає з «Очікують відгуку» в
-  статистиці; тиснеш ще раз — знімається позначка (⬜), якщо натиснув(ла) помилково. Кнопка
-  «✅ Готово» прибирає клавіатуру, коли розібрав(ла) усе, що хотів(ла).
-- Якщо треба саме «Відгукнувся» (а не «не цікаво») — внизу є кнопка «🔘 Відгукнувся/Не цікаво по
-  черзі (картками)», яка перемикає на старий режим: окреме повідомлення на кожну вакансію з
-  обома кнопками.
-- На відміну від кнопки «🚫 Не цікаво» під самим пушем (одноразова дія), тут позначку можна
-  ставити й знімати скільки завгодно — у статистику («Не цікаво» в `/stats`) вакансія
-  зараховується лише один раз, навіть якщо позначку кілька разів перемкнути туди-сюди.
-- Поруч із кожним чекбоксом — рядок із двома кнопками: **«🔗 Відкрити»** (відкриває вакансію без
-  виходу з чекбокс-списку) і **«✅ Відгукнувся»** (одразу позначає вакансію як «відгукнувся» прямо
-  тут, якщо подався(-лась) просто з цього списку — не треба перемикатись у картковий режим). Після
-  «✅ Відгукнувся» обидва рядки цієї вакансії (чекбокс + «Відкрити»/«Відгукнувся») зникають із
-  клавіатури — решта списку лишається на місці.
-- Список розбитий на дві групи: **«⭐ Пріоритет (Львів/Remote, iOS, AI)»** зверху і **«— Інше —»**
-  нижче. Кнопка **«🚫 Відхилити все «Інше»»** одним тапом позначає «не цікаво» всю нижню групу —
-  зручно, коли в пріоритетній групі вже є щось цікаве, а решту переглядати не хочеться.
-- **Багато вакансій за раз?** Telegram не приймає занадто велику клавіатуру в одному повідомленні
-  (падало з «reply markup is too long» на ~50+ вакансіях) — тому список автоматично рубається на
-  сторінки, і знизу з'являється кнопка **«➡️ Далі (N)»**: тисни її, щоб побачити наступну порцію
-  з того самого місця, де закінчилась попередня (без повторного ручного /pending з початку
-  списку). Те саме працює і в `/skipped`.
-- **Передумав(ла)/вакансію перевідкрили?** Команда `/skipped` показує список усіх вакансій,
-  позначених «не цікаво» (ще не «Відгукнувся»), тими самими чекбокс-кнопками — тільки тут усе
-  на старті ✅. Тиснеш назву — знімаєш позначку, і вакансія одразу повертається в «Очікують
-  відгуку» в `/pending`, звідки можна знову відкрити й податись.
+## 7b. /pending — "not interested" checkboxes right in the list, no need to open each job
+- `/pending` immediately sends ONE message with a list of ⬜/✅ buttons — one per job, with no
+  intermediate step (previously you had to first tap a separate "Show with checkboxes" button).
+  Tap the title — it immediately switches to ✅ and the job disappears from "Awaiting response"
+  in stats; tap it again — the mark is removed (⬜) if you tapped it by mistake. The
+  "✅ Done" button removes the keyboard once you've gone through everything you wanted to.
+- If you specifically need "Applied" (not "not interested") — there's a "🔘 Applied/Not
+  interested one by one (cards)" button at the bottom that switches to the old mode: a separate
+  message per job with both buttons.
+- Unlike the "🚫 Not interested" button under the push itself (a one-time action), here the mark
+  can be toggled on and off as many times as you like — in stats ("Not interested" in `/stats`)
+  the job is only counted once, even if you toggle the mark back and forth several times.
+- Next to each checkbox is a row with two buttons: **"🔗 Open"** (opens the job without leaving
+  the checkbox list) and **"✅ Applied"** (marks the job as "applied" right there, if you applied
+  straight from this list — no need to switch to card mode). After "✅ Applied" both rows for
+  that job (checkbox + "Open"/"Applied") disappear from the keyboard — the rest of the list
+  stays in place.
+- The list is split into two groups: **"⭐ Priority (Lviv/Remote, iOS, AI)"** on top and
+  **"— Other —"** below. The **"🚫 Dismiss all 'Other'"** button marks the entire bottom group
+  as "not interested" with one tap — handy when there's already something interesting in the
+  priority group and you don't want to go through the rest.
+- **Lots of jobs at once?** Telegram won't accept too large a keyboard in one message (it used
+  to fail with "reply markup is too long" at ~50+ jobs) — so the list is automatically split
+  into pages, and a **"➡️ Next (N)"** button appears at the bottom: tap it to see the next batch
+  starting right where the previous one left off (no need to manually re-run `/pending` from
+  the start of the list). The same works in `/skipped`.
+- **Changed your mind, or the job got reopened?** The `/skipped` command shows a list of all
+  jobs marked "not interested" (not yet "Applied"), with the same checkbox buttons — except here
+  everything starts as ✅. Tap the title — the mark is removed, and the job immediately returns
+  to "Awaiting response" in `/pending`, from where you can open and apply again.
 
-## 8. Якщо DOU/Djinni RSS мовчить
-- Якщо фід не відповідає (403, таймаут, зламаний XML) `FEED_FAIL_THRESHOLD` прогонів поспіль
-  (за замовч. 5) — одне попередження в Telegram, щоб не сплутати технічний збій із «просто нема
-  нових вакансій». Коли фід відновлюється — одне повідомлення про це, без спаму щоразу.
-- `FEED_FAIL_THRESHOLD=0` — вимкнути ці попередження.
+## 8. If the DOU/Djinni RSS feed goes silent
+- If a feed fails to respond (403, timeout, broken XML) for `FEED_FAIL_THRESHOLD` runs in a row
+  (default 5) — a single warning in Telegram, so a technical failure isn't mistaken for "just no
+  new jobs". When the feed recovers — a single message about that, no spam every time.
+- `FEED_FAIL_THRESHOLD=0` — disables these warnings.
 
-## 9. Щоб працював без вимкнень
-- Mac/ПК: `nohup python3 jobbot.py --loop 60 &` (або launchd/systemd).
-- Render / дешевий VPS / Raspberry Pi — найнадійніше.
-- Кнопки резюме/листа працюють лише в режимі `--loop` (окремий потік слухає Telegram-команди).
+## 9. Keeping it running without interruptions
+- Mac/PC: `nohup python3 jobbot.py --loop 60 &` (or launchd/systemd).
+- Render / a cheap VPS / Raspberry Pi — the most reliable options.
+- The resume/cover-letter buttons only work in `--loop` mode (a separate thread listens for
+  Telegram commands).
 
-**Render Free засинає без трафіку (~15 хв без запитів) — потрібен зовнішній пінг.** Якщо
-задана змінна `PORT` (Render виставляє її сама), `jobbot.py` піднімає мінімальний HTTP-ендпоінт
-(`GET /` → `200 OK`) саме для цього — сам бот (Telegram-поллінг, фіди) працює незалежно від
-нього. Щоб Render не засинав:
-1. Зареєструйся на [UptimeRobot](https://uptimerobot.com) (безкоштовно).
-2. Додай новий монітор типу **HTTP(s)**, URL — адреса твого Render-сервісу
-   (`https://<your-app>.onrender.com/`), інтервал перевірки — 5 хвилин.
-3. Готово — UptimeRobot регулярно «будить» сервіс, і диск/бот не засинає між реальними
-   запитами. Підійде будь-який інший подібний пінг-сервіс (cron-job.org, healthchecks.io тощо) —
-   головне, щоб він ходив на корінь `/` з інтервалом менше за ~15 хв.
+**Render Free goes to sleep without traffic (~15 min with no requests) — it needs an external
+ping.** If the `PORT` environment variable is set (Render sets it automatically), `jobbot.py`
+starts a minimal HTTP endpoint (`GET /` → `200 OK`) for exactly this purpose — the bot itself
+(Telegram polling, feeds) keeps running independently of it. To keep Render from sleeping:
+1. Sign up at [UptimeRobot](https://uptimerobot.com) (free).
+2. Add a new **HTTP(s)** monitor, URL — your Render service's address
+   (`https://<your-app>.onrender.com/`), check interval — 5 minutes.
+3. Done — UptimeRobot regularly "wakes" the service, so the disk/bot doesn't go to sleep
+   between real requests. Any similar ping service works too (cron-job.org, healthchecks.io,
+   etc.) — the only requirement is that it hits the `/` root at an interval under ~15 min.
 
-## 10. Налаштування
-`GLOBAL_EXCLUDE` (ролі, які ніколи не цікаві, для будь-якого профілю), `MAX_AGE_DAYS`,
-`FIRST_RUN_LIMIT` (перший запуск шле лише N найсвіжіших) — у `config.py`. Базове резюме для
-кнопки «Адаптувати резюме» — окремо, у `resumes.py`/`resumes_local.py` (розділ 4).
-Кнопка «Відкрити» веде одразу на «Відгукнутись» (DOU) або сторінку вакансії (Djinni).
+## 10. Configuration
+`GLOBAL_EXCLUDE` (roles that are never of interest, for any profile), `MAX_AGE_DAYS`,
+`FIRST_RUN_LIMIT` (first run only sends the N most recent) — in `config.py`. The base resume
+for the "Tailor resume" button is separate, in `resumes.py`/`resumes_local.py` (section 4).
+The "Open" button leads straight to "Apply" (DOU) or the job page (Djinni).
 
-Самі ж профілі пошуку (iOS, Node.js, Embedded/Linux, Java, Python за замовчуванням) тепер
-редагуються прямо з Telegram — без правок коду й редеплою, див. розділ 11.
+The search profiles themselves (iOS, Node.js, Embedded/Linux, Java, Python by default) are now
+edited directly from Telegram — no code changes or redeploy needed, see section 11.
 
-## 11. Профілі пошуку — /profiles, /addprofile
-`config.py` з профілями — це лише початковий набір (посів) для першого запуску. При першому
-старті він копіюється в `state.json`, і далі `state.json` — єдине джерело правди: саме туди
-додає/видаляє профілі бот, і саме цей файл ходить у бекапах (розділ 7) — тож свій набір
-профілів не загубиться при перевстановленні диска на Render Free.
+## 11. Search profiles — /profiles, /addprofile
+`config.py` with its profiles is just the initial seed set for the first run. On first
+startup it's copied into `state.json`, and from then on `state.json` is the single source of
+truth — that's where the bot adds/removes profiles, and that's the file that gets backed up
+(section 7) — so your set of profiles won't get lost if the disk is reset on Render Free.
 
-- **`/profiles`** — список поточних профілів (назва, резюме, скільки фідів) з кнопкою 🗑
-  видалити під кожним.
-- **`/addprofile`** — покроковий майстер: назва профілю → ключ резюме (для кнопки «Адаптувати
-  резюме»; якщо такого резюме нема в `resumes.py` — нічого страшного, кнопка просто буде
-  вимкнена для цього профілю) → ключові слова для фідів DOU/Djinni (кожне слово = один фід з
-  DOU і один з Djinni) → слова, які обов'язково мають бути в заголовку (або «-») → слова-виключення
-  (або «-») → виключити Senior/Lead позиції (так/ні) → максимум років досвіду (або «-»).
-  Ніякого regex писати не треба — все будується з простих ключових слів. `/cancel` — скасувати
-  майстер у будь-який момент.
+- **`/profiles`** — list of current profiles (name, resume, how many feeds) with a 🗑 delete
+  button under each.
+- **`/addprofile`** — a step-by-step wizard: profile name → resume key (for the "Tailor resume"
+  button; if there's no matching resume in `resumes.py` that's fine, the button will just be
+  disabled for this profile) → keywords for DOU/Djinni feeds (each word = one DOU feed and one
+  Djinni feed) → words that must appear in the title (or "-") → exclusion words (or "-") →
+  exclude Senior/Lead positions (yes/no) → max years of experience (or "-"). No regex to write —
+  everything is built from plain keywords. `/cancel` — cancel the wizard at any point.
 
-Приклад: другу-фронтендеру (не шукає Embedded, не прив'язаний до Львова, без iOS) достатньо
-`/addprofile` → «🎨 Frontend» → `Frontend` → `Frontend, React, Vue` → `-` → `backend, devops` →
-так (без Senior) → `3` — і це вже окремий, повністю свій профіль пошуку, без жодної правки
-коду.
+Example: for a frontend-developer friend (not looking for Embedded, not tied to Lviv, no iOS)
+it's enough to run `/addprofile` → "🎨 Frontend" → `Frontend` → `Frontend, React, Vue` → `-` →
+`backend, devops` → yes (no Senior) → `3` — and that's already a separate, fully custom search
+profile, with no code changes at all.
 
-## 12. Render — змінні середовища
-Start command лишається `python3 jobbot.py --loop 60`. У Build command додай встановлення
-залежностей: `pip install -r requirements.txt`. Обов'язкові: `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`. Опційні: `ANTHROPIC_MODEL`, `NTFY_TOPIC`,
+## 12. Render — environment variables
+The start command stays `python3 jobbot.py --loop 60`. Add the dependency install to the
+build command: `pip install -r requirements.txt`. Required: `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`. Optional: `ANTHROPIC_MODEL`, `NTFY_TOPIC`,
 `REMINDER_HOURS`, `TZ_NAME`, `QUIET_HOURS_START`, `QUIET_HOURS_END`, `DIGEST_WEEKDAY`,
 `DIGEST_HOUR`, `BACKUP_INTERVAL_HOURS`, `FEED_FAIL_THRESHOLD`, `BOT_LANG`, `APPLICANT_NAME`
-(твоє ім'я без пробілів — використовується тільки для назви файлу PDF-резюме, напр.
-`JaneDoe_CV_...pdf`; якщо не задати — файл називається просто `Resume_CV_...pdf`).
+(your name with no spaces — used only for the PDF resume file name, e.g.
+`JaneDoe_CV_...pdf`; if not set, the file is just named `Resume_CV_...pdf`).
 
-## 13. Мова бота (i18n)
-Усі тексти, які бот шле в Telegram/ntfy (пуші, кнопки, відповіді на команди), живуть у
-`i18n.py` — словник `TRANSLATIONS` з мовними секціями (зараз `uk` і `en`). Мова обирається
-змінною середовища `BOT_LANG` (типово `uk`) і фіксується один раз при старті — перемикання
-мови на льоту не передбачено, це одна інсталяція = одна мова.
+## 13. Bot language (i18n)
+All text the bot sends to Telegram/ntfy (pushes, buttons, command replies) lives in `i18n.py` —
+a `TRANSLATIONS` dict with language sections (currently `uk` and `en`). The language is chosen
+via the `BOT_LANG` environment variable (default `uk`) and is fixed once at startup — there's
+no live language switching, one deployment = one language.
 
-Щоб задеплоїти англомовну версію: постав `BOT_LANG=en` у Render. Щоб додати ще одну мову —
-скопіюй блок `"uk": { ... }` у `i18n.py`, перекладай тільки значення (ключі й
-`{плейсхолдери}`/HTML-теги на кшталт `<b>`, `<a href=...>` лишай як є — їх підставляє код,
-а не переклад) і додай нову мову як ще одну секцію в `TRANSLATIONS`.
+To deploy an English-language version: set `BOT_LANG=en` on Render. To add another language —
+copy the `"uk": { ... }` block in `i18n.py`, translate only the values (leave the keys and
+`{placeholders}`/HTML tags like `<b>`, `<a href=...>` as they are — the code fills those in,
+not the translation), and add the new language as another section in `TRANSLATIONS`.
 
-## 14. Поділитися ботом з кимось іншим
-Цей репозиторій публічний, і `resumes.py` у ньому — вже безпечний приклад (розділ 4), а
-`config.py` — реальний робочий набір профілів автора (нічого приватного в самих назвах ролей
-немає). Якщо хочеш віддати копію комусь конкретному (другу) так, щоб він не бачив, що саме ти
-шукаєш — `./scripts/make_release.sh` пакує архів, де `config.py` додатково замінено на один
-вигаданий профіль «🎨 Frontend (Junior+)» (`release_templates/config.example.py`). Твій
-реальний `config.py`/`resumes_local.py` скрипт навіть не читає.
+## 14. Sharing the bot with someone else
+This repository is public, and `resumes.py` in it is already a safe example (section 4), while
+`config.py` is the author's real working set of profiles (there's nothing private in the role
+names themselves). If you want to give a copy to someone specific (a friend) without them
+seeing exactly what you're searching for — `./scripts/make_release.sh` packages a zip where
+`config.py` is additionally replaced with a single made-up profile, "🎨 Frontend (Junior+)"
+(`release_templates/config.example.py`). The script doesn't even read your real
+`config.py`/`resumes_local.py`.
 
 ```
 ./scripts/make_release.sh
 # -> dist/jobbot-example.zip
 ```
 
-Результат — `dist/jobbot-example.zip`: розпакував, задеплоїв (розділ 3 чи 12), і бот одразу
-працює з прикладним профілем; свій реальний профіль друг додає сам через `/addprofile`
-(розділ 11), а своє резюме — замінивши приклад у `resumes.py` на власний текст. Запускай
-`make_release.sh` повторно щоразу, коли оновиш код — свіжий архів завжди бере поточний
-`jobbot.py`/`i18n.py`.
+The result is `dist/jobbot-example.zip`: unzip it, deploy it (section 3 or 12), and the bot
+works immediately with the example profile; your friend adds their own real profile themselves
+via `/addprofile` (section 11), and their own resume by replacing the example in `resumes.py`
+with their own text. Re-run `make_release.sh` every time you update the code — a fresh archive
+always picks up the current `jobbot.py`/`i18n.py`.
