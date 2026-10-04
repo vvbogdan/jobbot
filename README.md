@@ -217,7 +217,8 @@ build command: `pip install -r requirements.txt`. Required: `TELEGRAM_BOT_TOKEN`
 `REMINDER_HOURS`, `TZ_NAME`, `QUIET_HOURS_START`, `QUIET_HOURS_END`, `DIGEST_WEEKDAY`,
 `DIGEST_HOUR`, `BACKUP_INTERVAL_HOURS`, `FEED_FAIL_THRESHOLD`, `BOT_LANG`, `APPLICANT_NAME`
 (your name with no spaces — used only for the PDF resume file name, e.g.
-`JaneDoe_CV_...pdf`; if not set, the file is just named `Resume_CV_...pdf`).
+`JaneDoe_CV_...pdf`; if not set, the file is just named `Resume_CV_...pdf`), `JOOBLE_API_KEY`
+and `JOOBLE_LOCATION` (see section 15 — only needed if you turn the Jooble source on).
 
 ## 13. Bot language (i18n)
 All text the bot sends to Telegram/ntfy (pushes, buttons, command replies) lives in `i18n.py` —
@@ -249,3 +250,51 @@ works immediately with the example profile; your friend adds their own real prof
 via `/addprofile` (section 11), and their own resume by replacing the example in `resumes.py`
 with their own text. Re-run `make_release.sh` every time you update the code — a fresh archive
 always picks up the current `jobbot.py`/`i18n.py`.
+
+## 15. Extra sources — Jooble, RemoteOK, Work.ua
+Besides DOU and Djinni, three more sources can be turned on — all off by default, since they're
+either less relevant, need extra setup, or more fragile than DOU/Djinni's RSS feeds. Turn one
+on with `/set source_jooble 1` / `/set source_remoteok 1` / `/set source_workua 1` in Telegram
+(same mechanism as section 7a — no redeploy, survives a disk reset). Each profile's `keywords`
+field in `config.py` (or the keywords you gave `/addprofile`) drives all three; nothing else to
+configure per-profile.
+
+- **Jooble** — a real job-search API (not an RSS feed), searched by keyword + location. Needs
+  a free `JOOBLE_API_KEY` (sign up at jooble.org/api/about) set as an env var on Render — this
+  is a credential, so it's not something you toggle from Telegram like the others. The free
+  plan's **500 requests is the key's entire lifetime quota, not per day** — with `--loop 60` and
+  several keywords, that adds up fast, so turn this on only if you're watching the quota (a
+  generous polling interval, or a key you don't mind burning through). Location defaults to
+  `Україна` — override with the `JOOBLE_LOCATION` env var. If you turn the setting on without
+  setting the key, the bot tells you so right in the `/set` reply and silently skips Jooble
+  until the key is added.
+- **RemoteOK** — a public JSON API, no key needed. Mostly **international remote jobs in
+  English, not Ukraine-specific** — useful mainly if some of your profiles are fine with fully
+  remote roles anywhere. RemoteOK's tags are a fixed vocabulary (`python`, `javascript`,
+  `devops`, `ios`, ...), not free text, so a keyword like "Embedded" or "C++" may just come back
+  empty — that's expected, not a bug.
+- **Work.ua** — has **no public RSS or API** (it did back in 2009; that was discontinued, and
+  `/rss/` on their site is a 404 today). This source is an HTML scraper instead, which makes it
+  the most fragile of the four: if work.ua changes its page layout, this can start quietly
+  returning nothing, without tripping `FEED_FAIL_THRESHOLD` (the HTTP request itself still
+  succeeds — there's just nothing recognizable in the response). Needs `beautifulsoup4`
+  (already in `requirements.txt`). Posting dates here are approximate — work.ua's listing page
+  only shows a relative age ("19 год. тому"), not an exact date.
+
+## 16. Project layout (for editing code)
+- `jobbot.py` — orchestration: state/settings, Telegram commands and buttons, pushes, PDF
+  resume/cover-letter generation, scheduling (`--loop`). Doesn't know how any particular source
+  fetches its data — just loops over `sources.PROVIDERS`.
+- `net.py` — the only place that talks to the network directly: a small retrying HTTP client
+  (`http()`) and an HTML-to-text helper (`strip_html()`), shared by `jobbot.py` (Telegram/ntfy
+  calls) and every module under `sources/`.
+- `sources/` — one file per job source (`dou.py`, `djinni.py`, `jooble.py`, `remoteok.py`,
+  `workua.py`), each exposing a `provider` object with `.name`, `.setting_name` (the `/set` key
+  that toggles it, or `None` for always-on), and `.fetch(keyword)` → a list of
+  `{title, link, desc, pub}` dicts. `sources/__init__.py` lists them all in `PROVIDERS`.
+  To add a 6th source: copy an existing module as a template, add it to `PROVIDERS`, and (if
+  it's optional) add its `/set` key to `SETTINGS_SCHEMA` in `jobbot.py` and its description to
+  `i18n.py` — nothing else needs to change.
+- `config.py` — profiles (`PROFILES`), each with a `keywords` list searched against every
+  active provider (section 10/11).
+- `i18n.py`, `resumes.py`/`resumes_local.py` — as described in sections 13 and 4.

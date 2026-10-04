@@ -1,2 +1,3 @@
 reportlab
 tzdata
+beautifulsoup4

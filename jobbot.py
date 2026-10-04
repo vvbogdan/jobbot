@@ -28,9 +28,14 @@ Features:
   - A persistent keyboard with buttons (Stats/Pending/Backup/Help) — commands without typing;
     the commands also show up in the "/" menu next to the input field.
 
-Sources: public RSS feeds (no login required):
-  DOU:    https://jobs.dou.ua/vacancies/feeds/?category=<Category>
-  Djinni: https://djinni.co/jobs/rss/?primary_keyword=<Keyword>
+Sources:
+  DOU, Djinni — public RSS feeds (no login required):
+    DOU:    https://jobs.dou.ua/vacancies/feeds/?category=<Category>
+    Djinni: https://djinni.co/jobs/rss/?primary_keyword=<Keyword>
+  Jooble, RemoteOK, Work.ua — optional, off by default, see README section 15:
+    Jooble:   REST API (needs a free JOOBLE_API_KEY), search by keyword+location
+    RemoteOK: public JSON API, search by tag — mostly international remote jobs
+    Work.ua:  no public RSS/API (discontinued) — HTML scraper, more fragile than the above
 
 Environment variables:
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID   — required for pushes and commands
@@ -49,6 +54,8 @@ Environment variables:
   STATS_PERIOD_DAYS                       — window for /stats and the weekly digest (default 14)
   FEED_FAIL_THRESHOLD                     — after how many consecutive failed feed runs to send
                                             a Telegram warning (0 = off; default 5)
+  JOOBLE_API_KEY                          — required to enable the Jooble source (/set source_jooble 1)
+  JOOBLE_LOCATION                         — location Jooble searches in (default "Україна")
 
 Run:
   python3 jobbot.py                # one-off run (for cron / GitHub Actions)
@@ -56,8 +63,9 @@ Run:
   python3 jobbot.py --dry-run      # send nothing, just show matches
   python3 jobbot.py --test         # send a test push
 
-Dependencies: standard library + reportlab (PDF generation).
-  pip install reportlab
+Dependencies: standard library + reportlab (PDF generation) + beautifulsoup4 (only needed for
+the optional Work.ua scraper).
+  pip install -r requirements.txt
 """
 import argparse
 import html
@@ -67,14 +75,10 @@ import re
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 import zlib
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -92,8 +96,10 @@ from i18n import t
 from config import (
     PROFILES, GLOBAL_EXCLUDE, SENIOR_WORDS, PRIORITY_TEXT,
     EMBEDDED_PRIORITY_LOCATION_RE, EMBEDDED_KYIV_LOCATION_RE,
-    MAX_AGE_DAYS, FIRST_RUN_LIMIT, DOU, DJINNI,
+    MAX_AGE_DAYS, FIRST_RUN_LIMIT,
 )
+from net import http, strip_html
+from sources import PROVIDERS
 
 # ───────────────────────── SETTINGS ─────────────────────────
 
@@ -144,9 +150,6 @@ DEADLINE_RE = re.compile(
     re.I,
 )
 
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 APPLICANT_NAME = re.sub(r"[^\w\-]+", "", os.environ.get("APPLICANT_NAME", "Resume"))
@@ -160,8 +163,9 @@ COMPANY_LABEL_RE = re.compile(
     re.I,
 )
 
-# DOU, DJINNI, EMBEDDED_TEXT, EMBEDDED_PRIORITY_LOCATION_RE, EMBEDDED_KYIV_LOCATION_RE — see
-# config.py (profile/preference settings live there now)
+# EMBEDDED_TEXT, EMBEDDED_PRIORITY_LOCATION_RE, EMBEDDED_KYIV_LOCATION_RE — see config.py
+# (profile/preference settings live there now). DOU/Djinni's own URL templates live in
+# sources/dou.py and sources/djinni.py.
 
 # DOU/Djinni sometimes leave a closed vacancy in the RSS feed for a while, but mark it in the text
 CLOSED_TEXT = (
@@ -180,63 +184,9 @@ def log(*a):
     print(datetime.now().strftime("%H:%M:%S"), *a, flush=True)
 
 
-def http(url, data=None, headers=None, timeout=25, retries=2, method=None):
-    h = {"User-Agent": UA, "Accept": "*/*"}
-    if headers:
-        h.update(headers)
-    last = None
-    for i in range(retries + 1):
-        try:
-            req = urllib.request.Request(url, data=data, headers=h, method=method)
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            last = e
-            body = ""
-            try:
-                body = e.read().decode("utf-8", "replace")[:500]
-            except Exception:  # noqa: BLE001
-                pass
-            last = RuntimeError(f"HTTP {e.code}: {body or e}")
-            if e.code == 429:
-                time.sleep(int(e.headers.get("Retry-After", "3")))
-            elif e.code in (403, 404):
-                break
-        except Exception as e:  # noqa: BLE001
-            last = e
-        time.sleep(1.5 * (i + 1))
-    raise RuntimeError(f"{url}: {last}")
-
-
-def strip_html(s):
-    s = html.unescape(s or "")
-    s = re.sub(r"<br\s*/?>|</p>|</li>|</h\d>", "\n", s, flags=re.I)
-    s = re.sub(r"<[^>]+>", " ", s)
-    s = html.unescape(s)
-    return re.sub(r"[ \t ]+", " ", s).strip()
-
-
-def parse_rss(xml_text):
-    root = ET.fromstring(xml_text.lstrip("﻿"))
-    items = []
-    for it in root.iter("item"):
-        g = lambda tag: (it.findtext(tag) or "").strip()  # noqa: E731
-        link = g("link")
-        pub = None
-        if g("pubDate"):
-            try:
-                pub = parsedate_to_datetime(g("pubDate"))
-                if pub.tzinfo is None:
-                    pub = pub.replace(tzinfo=timezone.utc)
-            except Exception:  # noqa: BLE001
-                pub = None
-        items.append({
-            "title": html.unescape(g("title")),
-            "link": link,
-            "desc": strip_html(g("description")),
-            "pub": pub,
-        })
-    return items
+# http(), strip_html(), parse_rss() moved to net.py / sources/_rss.py — imported at the
+# top of this file. fetch_jooble()/fetch_remoteok()/fetch_workua() moved to sources/*.py —
+# see sources/__init__.py (PROFILES' "keywords" + PROVIDERS drive collect() below).
 
 
 def normalize_title(title):
@@ -250,7 +200,13 @@ def normalize_title(title):
 def job_id(link):
     m = re.search(r"/vacancies/(\d+)", link) or re.search(r"/jobs/(\d+)", link)
     if m:
-        return ("dou:" if "dou.ua" in link else "dj:") + m.group(1)
+        if "dou.ua" in link:
+            return "dou:" + m.group(1)
+        if "work.ua" in link:
+            return "workua:" + m.group(1)
+        return "dj:" + m.group(1)
+    # Jooble/RemoteOK links don't match either pattern — the full link (minus query string) is
+    # already unique per source/job, so no extra prefix is needed.
     return link.split("?")[0]
 
 
@@ -580,7 +536,14 @@ SETTINGS_SCHEMA = {
     "pending_list_limit": (int, PENDING_LIST_LIMIT, t("setting_desc_pending_list_limit")),
     "pending_cards_limit": (int, PENDING_CARDS_LIMIT, t("setting_desc_pending_cards_limit")),
     "seen_list_limit": (int, SEEN_LIST_LIMIT, t("setting_desc_seen_list_limit")),
+    "source_jooble": (int, 0, t("setting_desc_source_jooble")),
+    "source_remoteok": (int, 0, t("setting_desc_source_remoteok")),
+    "source_workua": (int, 0, t("setting_desc_source_workua")),
 }
+
+# Settings that are strictly on/off (0 or 1), not an arbitrary number — set_setting() below
+# rejects anything else for these.
+BOOL_SETTINGS = {"source_jooble", "source_remoteok", "source_workua"}
 
 
 def get_setting(name):
@@ -605,6 +568,8 @@ def set_setting(name, raw_value):
         return False, t("set_not_a_number", value=raw_value)
     if name in ("quiet_hours_start", "quiet_hours_end") and not (0 <= value <= 24):
         return False, t("set_out_of_range_0_24")
+    if name in BOOL_SETTINGS and value not in (0, 1):
+        return False, t("set_out_of_range_0_1")
     if name != "reminder_hours" and name != "backup_interval_hours" and value < 0:
         return False, t("set_must_be_nonnegative")
 
@@ -632,6 +597,27 @@ def build_settings_text():
 # one-time seed for a brand-new state.json (first-ever run, or after a full restore from a
 # backup made before this feature existed).
 
+def _derive_keywords_from_old_feeds(prof):
+    """Migrates a profile saved before the provider refactor (old shape: "feeds" —
+    [(src, url, must_text), ...] — and no "keywords" at all) by recovering the keyword from
+    each feed's own URL. Wizard-built profiles already carry "feed_keywords" regardless of
+    age, so that's tried first and covers them with no guessing involved."""
+    if prof.get("feed_keywords"):
+        return [(kw, None) for kw in prof["feed_keywords"]]
+    recovered = {}
+    for feed in prof.get("feeds", []):
+        if len(feed) != 3:
+            continue
+        _src, url, must_text = feed
+        m = re.search(r"[?&](?:category|primary_keyword)=([^&]+)", url)
+        if not m:
+            continue
+        kw = urllib.parse.unquote_plus(m.group(1))
+        if kw not in recovered or (must_text and not recovered[kw]):
+            recovered[kw] = must_text
+    return list(recovered.items())
+
+
 def get_profiles():
     """The live set of profiles (state.json), seeding it from config.PROFILES on first use."""
     st = load_state()
@@ -644,7 +630,19 @@ def get_profiles():
             st.setdefault("profiles", seeded)
         state_update(_seed)
         st = load_state()
-    return st["profiles"]
+
+    profiles = st["profiles"]
+    # Migrate any profile saved before the provider refactor (section above) — collect() only
+    # reads "keywords" now, so a profile restored from an old backup (or already sitting in a
+    # live state.json from before today) would otherwise silently stop matching anything.
+    if any("keywords" not in prof for prof in profiles.values()):
+        for prof in profiles.values():
+            prof.setdefault("keywords", _derive_keywords_from_old_feeds(prof))
+
+        def _migrate(st):
+            st["profiles"] = profiles
+        state_update(_migrate)
+    return profiles
 
 
 def build_profile_from_wizard(data):
@@ -655,11 +653,6 @@ def build_profile_from_wizard(data):
         parts = [re.escape(k.strip()) for k in keywords if k.strip()]
         return r"\b(" + "|".join(parts) + r")\b" if parts else None
 
-    feeds = []
-    for kw in data["feed_keywords"]:
-        feeds.append(("DOU", DOU.format(urllib.parse.quote(kw)), None))
-        feeds.append(("Djinni", DJINNI.format(urllib.parse.quote(kw)), None))
-
     exclude_parts = list(data.get("exclude_keywords") or [])
     exclude_title = _kw_re(exclude_parts)
     if data.get("exclude_senior"):
@@ -667,7 +660,9 @@ def build_profile_from_wizard(data):
 
     return {
         "resume_key": data["resume_key"],
-        "feeds": feeds,
+        # one list of keywords, queried against every active provider (sources.PROVIDERS) —
+        # DOU/Djinni always, Jooble/RemoteOK/Work.ua only when their /set source_* is on
+        "keywords": [(kw, None) for kw in data["feed_keywords"]],
         "must_title": _kw_re(data.get("must_keywords") or []),
         "exclude_title": exclude_title,
         "max_years": data.get("max_years"),
@@ -708,7 +703,7 @@ def build_profiles_text():
     lines = [t("profiles_header", n=len(profiles))]
     for label, prof in profiles.items():
         lines.append(t("profiles_line", label=label, resume_key=prof.get("resume_key"),
-                        feeds=len(prof.get("feeds", []))))
+                        n_keywords=len(prof.get("keywords", []))))
     return "\n".join(lines)
 
 
@@ -831,7 +826,7 @@ def _finish_profile_wizard(chat_id):
     profile = build_profile_from_wizard(wiz["data"])
     add_profile(wiz["data"]["label"], profile)
     send_telegram_plain(chat_id, t("profwiz_saved", label=wiz["data"]["label"],
-                                    n_feeds=len(profile["feeds"])))
+                                    n_keywords=len(profile["keywords"])))
 
 
 # ───────────────────────── COLLECTING JOBS ─────────────────────────
@@ -862,39 +857,50 @@ def _note_feed_fail(url, src):
         )
 
 
+def _collect_item(found, label, prof, must_text, item, src):
+    if not item["link"]:
+        return
+    meta = evaluate(prof, must_text, item)
+    if meta is None:
+        return
+    jid = job_id(item["link"])
+    # Besides the general AI-agentic heuristic (is_priority): for Embedded — Lviv/remote
+    # is also priority, and for iOS — always priority (regardless of location).
+    priority = (
+        is_priority(item["title"], item["desc"])
+        or meta.get("location_tag") == "lviv_remote"
+        or prof["resume_key"] == "iOS"
+    )
+    rec = found.setdefault(jid, {"item": item, "src": src, "labels": [], "meta": meta,
+                                  "resume_key": prof["resume_key"],
+                                  "priority": priority})
+    if label not in rec["labels"]:
+        rec["labels"].append(label)
+
+
 def collect():
-    """Returns {id: {item, src, labels, meta, resume_key}} — jobs matching ≥1 profile."""
+    """Returns {id: {item, src, labels, meta, resume_key}} — jobs matching ≥1 profile. Loops
+    every profile's "keywords" against every active provider in sources.PROVIDERS (DOU/Djinni
+    are always active; Jooble/RemoteOK/Work.ua only when their /set source_* toggle is on) —
+    see sources/__init__.py for what a provider is and how to add one."""
     found = {}
     fetched = {}
     for label, prof in get_profiles().items():
-        for src, url, must_text in prof["feeds"]:
-            if url not in fetched:
-                try:
-                    fetched[url] = parse_rss(http(url))
-                    _note_feed_ok(url, src)
-                except Exception as e:  # noqa: BLE001
-                    log(f"✗ {src} {url}: {e}")
-                    fetched[url] = []
-                    _note_feed_fail(url, src)
-            for item in fetched[url]:
-                if not item["link"]:
+        for keyword, must_text in prof.get("keywords", []):
+            for provider in PROVIDERS:
+                if provider.setting_name and not get_setting(provider.setting_name):
                     continue
-                meta = evaluate(prof, must_text, item)
-                if meta is None:
-                    continue
-                jid = job_id(item["link"])
-                # Besides the general AI-agentic heuristic (is_priority): for Embedded — Lviv/remote
-                # is also priority, and for iOS — always priority (regardless of location).
-                priority = (
-                    is_priority(item["title"], item["desc"])
-                    or meta.get("location_tag") == "lviv_remote"
-                    or prof["resume_key"] == "iOS"
-                )
-                rec = found.setdefault(jid, {"item": item, "src": src, "labels": [], "meta": meta,
-                                              "resume_key": prof["resume_key"],
-                                              "priority": priority})
-                if label not in rec["labels"]:
-                    rec["labels"].append(label)
+                cache_key = f"{provider.name}:{keyword}"
+                if cache_key not in fetched:
+                    try:
+                        fetched[cache_key] = provider.fetch(keyword)
+                        _note_feed_ok(cache_key, provider.name)
+                    except Exception as e:  # noqa: BLE001
+                        log(f"✗ {provider.name} {keyword}: {e}")
+                        fetched[cache_key] = []
+                        _note_feed_fail(cache_key, provider.name)
+                for item in fetched[cache_key]:
+                    _collect_item(found, label, prof, must_text, item, provider.name)
     return dedup_cross_site(found)
 
 
@@ -2025,7 +2031,11 @@ def poll_telegram_loop():
                             _, key, val = parts
                             ok, result = set_setting(key.lower(), val)
                             if ok:
-                                send_telegram_plain(chat_id, t("set_ok", key=key.lower(), value=result))
+                                msg = t("set_ok", key=key.lower(), value=result)
+                                if (key.lower() == "source_jooble" and result
+                                        and not os.environ.get("JOOBLE_API_KEY")):
+                                    msg += "\n" + t("set_jooble_needs_key")
+                                send_telegram_plain(chat_id, msg)
                             else:
                                 send_telegram_plain(chat_id, t("set_error", error=result))
             except Exception as e:  # noqa: BLE001

@@ -110,20 +110,25 @@ TRANSLATIONS = {
         "setting_desc_pending_list_limit": "скільки вакансій показувати в /pending",
         "setting_desc_pending_cards_limit": "ліміт карток за раз у «Показати з кнопками»",
         "setting_desc_seen_list_limit": "скільки вакансій показувати в /seen",
+        "setting_desc_source_jooble": "джерело Jooble: 1 = увімкнути, 0 = вимкнути (потрібен JOOBLE_API_KEY)",
+        "setting_desc_source_remoteok": "джерело RemoteOK: 1 = увімкнути, 0 = вимкнути (міжнародні remote-вакансії)",
+        "setting_desc_source_workua": "джерело Work.ua: 1 = увімкнути, 0 = вимкнути (HTML-скрапер, крихкіше за решту)",
         "set_unknown_key": "невідоме налаштування «{name}». Відомі: {known}",
         "set_not_a_number": "«{value}» — очікувалось число.",
         "set_out_of_range_0_24": "має бути в межах 0-24.",
+        "set_out_of_range_0_1": "має бути 0 (вимкнути) або 1 (увімкнути).",
         "set_must_be_nonnegative": "має бути невід'ємним числом.",
         "set_usage": "Формат: <code>/set ключ значення</code>\n\n{settings}",
         "set_ok": "✅ {key} = {value}",
         "set_error": "⚠️ {error}",
+        "set_jooble_needs_key": "⚠️ Джерело увімкнено, але JOOBLE_API_KEY не задано на сервері — Jooble поки не питатиметься.",
 
         # ── /profiles, /addprofile ──
         "cmd_profiles_desc": "Профілі пошуку (перегляд/видалення)",
         "cmd_addprofile_desc": "Додати новий профіль пошуку",
         "profiles_empty": "Профілів поки немає. /addprofile — щоб додати перший.",
         "profiles_header": "🧭 <b>Профілі пошуку: {n}</b>",
-        "profiles_line": "• <b>{label}</b> — резюме «{resume_key}», фідів: {feeds}",
+        "profiles_line": "• <b>{label}</b> — резюме «{resume_key}», ключових слів: {n_keywords}",
         "profiles_delete_btn": "🗑 {label}",
         "profiles_deleted": "🗑 Видалено профіль «{label}»",
         "profwiz_start": "➕ <b>Новий профіль пошуку</b> (/cancel — скасувати в будь-який момент)",
@@ -135,8 +140,9 @@ TRANSLATIONS = {
             "будуть вимкнені. Можна залишити порожнім — візьму назву профілю."
         ),
         "profwiz_ask_feed_keywords": (
-            "3/6. Ключові слова для пошуку на DOU і Djinni, через кому (напр. Frontend, React). "
-            "Для кожного слова додам фід з DOU і з Djinni."
+            "3/6. Ключові слова для пошуку, через кому (напр. Frontend, React). Шукатиму по "
+            "кожному слову на DOU і Djinni завжди, і на Jooble/RemoteOK/Work.ua — якщо вони "
+            "увімкнені (/set source_...)."
         ),
         "profwiz_ask_must_keywords": (
             "4/6. Заголовок вакансії обов'язково має містити одне з цих слів (через кому), "
@@ -151,7 +157,7 @@ TRANSLATIONS = {
         "profwiz_no": "Ні",
         "profwiz_ask_max_years": "6/6. Максимум років досвіду у вимогах (число), або «-» без обмежень:",
         "profwiz_cancelled": "Скасовано.",
-        "profwiz_saved": "✅ Профіль «{label}» збережено, фідів: {n_feeds}. /profiles — переглянути всі.",
+        "profwiz_saved": "✅ Профіль «{label}» збережено, ключових слів: {n_keywords}. /profiles — переглянути всі.",
 
         # ── /pending (list view) ──
         "pending_header": "📋 <b>Очікують відгуку: {n}</b>",
@@ -233,10 +239,10 @@ TRANSLATIONS = {
         "overnight_digest_header": "🌅 Нічний дайджест — {n} вакансій, поки було тихо:",
 
         # ── feed health ──
-        "feed_recovered": "✅ {src} знову віддає RSS як слід:\n{url}",
+        "feed_recovered": "✅ {src} знову працює як слід:\n{url}",
         "feed_failing": (
-            "⚠️ {src} не віддає RSS вже {n} прогонів поспіль — схоже на технічну проблему "
-            "з фідом, а не на відсутність вакансій:\n{url}"
+            "⚠️ {src} не віддає результат вже {n} прогонів поспіль — схоже на технічну проблему, "
+            "а не на відсутність вакансій:\n{url}"
         ),
 
         # ── backup / restore ──
@@ -343,20 +349,25 @@ TRANSLATIONS = {
         "setting_desc_pending_list_limit": "how many jobs to show in /pending",
         "setting_desc_pending_cards_limit": "card limit per batch in \"Show with buttons\"",
         "setting_desc_seen_list_limit": "how many jobs to show in /seen",
+        "setting_desc_source_jooble": "Jooble source: 1 = on, 0 = off (needs JOOBLE_API_KEY)",
+        "setting_desc_source_remoteok": "RemoteOK source: 1 = on, 0 = off (mostly international remote jobs)",
+        "setting_desc_source_workua": "Work.ua source: 1 = on, 0 = off (HTML scraper, more fragile than the rest)",
         "set_unknown_key": "unknown setting \"{name}\". Known: {known}",
         "set_not_a_number": "\"{value}\" — expected a number.",
         "set_out_of_range_0_24": "must be between 0 and 24.",
+        "set_out_of_range_0_1": "must be 0 (off) or 1 (on).",
         "set_must_be_nonnegative": "must be a non-negative number.",
         "set_usage": "Usage: <code>/set key value</code>\n\n{settings}",
         "set_ok": "✅ {key} = {value}",
         "set_error": "⚠️ {error}",
+        "set_jooble_needs_key": "⚠️ Source enabled, but JOOBLE_API_KEY isn't set on the server — Jooble won't be queried yet.",
 
         # ── /profiles, /addprofile ──
         "cmd_profiles_desc": "Search profiles (view/delete)",
         "cmd_addprofile_desc": "Add a new search profile",
         "profiles_empty": "No profiles yet. /addprofile to add your first one.",
         "profiles_header": "🧭 <b>Search profiles: {n}</b>",
-        "profiles_line": "• <b>{label}</b> — resume \"{resume_key}\", feeds: {feeds}",
+        "profiles_line": "• <b>{label}</b> — resume \"{resume_key}\", keywords: {n_keywords}",
         "profiles_delete_btn": "🗑 {label}",
         "profiles_deleted": "🗑 Deleted profile \"{label}\"",
         "profwiz_start": "➕ <b>New search profile</b> (/cancel to stop at any point)",
@@ -368,8 +379,9 @@ TRANSLATIONS = {
             "disabled for this profile. Leave blank to reuse the profile name."
         ),
         "profwiz_ask_feed_keywords": (
-            "3/6. Keywords to search for on DOU and Djinni, comma-separated (e.g. Frontend, "
-            "React). Each one adds a DOU feed and a Djinni feed."
+            "3/6. Keywords to search for, comma-separated (e.g. Frontend, React). Each one is "
+            "searched on DOU and Djinni always, and on Jooble/RemoteOK/Work.ua if those are "
+            "turned on (/set source_...)."
         ),
         "profwiz_ask_must_keywords": (
             "4/6. The job title must contain one of these words (comma-separated), "
@@ -384,7 +396,7 @@ TRANSLATIONS = {
         "profwiz_no": "No",
         "profwiz_ask_max_years": "6/6. Max years of experience required (a number), or \"-\" for no limit:",
         "profwiz_cancelled": "Cancelled.",
-        "profwiz_saved": "✅ Profile \"{label}\" saved, feeds: {n_feeds}. /profiles to see them all.",
+        "profwiz_saved": "✅ Profile \"{label}\" saved, keywords: {n_keywords}. /profiles to see them all.",
 
         "pending_header": "📋 <b>Awaiting response: {n}</b>",
         "pending_line": "• <a href=\"{link}\">{title}</a> — {age} ago",
@@ -456,10 +468,10 @@ TRANSLATIONS = {
         "weekly_digest_header": "🗓 <b>Weekly digest</b>\n\n",
         "overnight_digest_header": "🌅 Overnight digest — {n} jobs while it was quiet:",
 
-        "feed_recovered": "✅ {src} is serving RSS normally again:\n{url}",
+        "feed_recovered": "✅ {src} is working normally again:\n{url}",
         "feed_failing": (
-            "⚠️ {src} has failed to serve RSS for {n} runs in a row — looks like a technical "
-            "feed issue, not an absence of jobs:\n{url}"
+            "⚠️ {src} has failed for {n} runs in a row — looks like a technical issue, "
+            "not an absence of jobs:\n{url}"
         ),
 
         "no_state_to_backup": "⚠️ There's no state.json yet to back up.",

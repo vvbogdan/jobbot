@@ -15,13 +15,14 @@ OUT=jobbot-example
 rm -rf "dist/$OUT" "dist/$OUT.zip"
 mkdir -p "dist/$OUT"
 
-cp jobbot.py i18n.py resumes.py README.md requirements.txt .gitignore "dist/$OUT/"
+cp jobbot.py net.py i18n.py resumes.py README.md requirements.txt .gitignore "dist/$OUT/"
+cp -r sources "dist/$OUT/sources"
 cp release_templates/config.example.py "dist/$OUT/config.py"
 
 (cd dist && zip -rq "$OUT.zip" "$OUT")
 rm -rf "dist/$OUT"
 
 echo "Packaged: dist/$OUT.zip"
-echo "Contains only: jobbot.py, i18n.py, resumes.py (generic example), README.md,"
-echo "requirements.txt, .gitignore, and a single example config.py profile."
+echo "Contains only: jobbot.py, net.py, sources/, i18n.py, resumes.py (generic example),"
+echo "README.md, requirements.txt, .gitignore, and a single example config.py profile."
 echo "No real profiles, no real resume — your config.py and resumes_local.py stay untouched."
