@@ -1,9 +1,8 @@
-# jobbot — fast push notifications for new jobs (DOU + Djinni) + resume auto-tailoring
+# JobBot — fast push notifications for new jobs (DOU + Djinni) + resume auto-tailoring
 
-Python 3.8+. Reads public RSS feeds (no login needed). One external dependency — `reportlab`
-(PDF generation).
+Python 3.8+. Reads public RSS feeds (no login needed).
 
-## 1. Telegram bot (2 minutes)
+## 1. Telegram bot
 1. In Telegram, message @BotFather → `/newbot` → you'll get a **token**.
 2. Send your bot anything (`/start`).
 3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` → find `"chat":{"id":123456789` — this is your **chat id**.
