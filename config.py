@@ -59,14 +59,14 @@ EMBEDDED_KYIV_LOCATION_RE = r"ки[їє]в|kyiv|kiev"  # catches all Ukrainian c
 PROFILES = {
     "🍎 iOS (Senior)": {
         "resume_key": "iOS",
-        "keywords": [("iOS", None)],
+        "keywords": [("iOS", None), ("Mobile", None)],
         "must_title": r"\b(ios|swift|swiftui|iphone|ipad|apple|objective-c|macos|mobile)\b",
         "exclude_title": r"\b(junior|jr\.?|intern|trainee|android|kotlin|flutter|react native|unity)\b",
         "max_years": None,
     },
     "🟢 Node.js (Junior+/Middle)": {
         "resume_key": "Node.js",
-        "keywords": [("Node.js", None)],
+        "keywords": [("Node.js", None), ("JavaScript", r"node")],
         "must_title": None,
         "exclude_title": SENIOR_WORDS,
         "max_years": 4,       # discard if more than N years are required
