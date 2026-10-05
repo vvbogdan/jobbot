@@ -73,7 +73,11 @@ PROFILES = {
     },
     "🔌 Embedded / Linux (Junior)": {
         "resume_key": "Embedded",
-        "keywords": [("Embedded", None), ("C++", EMBEDDED_TEXT), ("Linux", EMBEDDED_TEXT)],
+        "keywords": [
+            ("Embedded", None), ("C++", EMBEDDED_TEXT), ("Linux", EMBEDDED_TEXT),
+            ("CPP", EMBEDDED_TEXT), ("C Lang", EMBEDDED_TEXT),
+            ("Hardware", EMBEDDED_TEXT), ("Robotics", EMBEDDED_TEXT),
+        ],
         "must_title": None,
         "exclude_title": SENIOR_WORDS,
         "max_years": 3,
