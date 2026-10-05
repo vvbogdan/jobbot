@@ -619,24 +619,29 @@ def _derive_keywords_from_old_feeds(prof):
 
 
 def _sync_keywords_from_config(profiles):
-    """Adds any keyword config.PROFILES has for a profile (matched by name) that the live
-    state.json copy doesn't have yet — so editing config.py's keyword list and redeploying is
-    enough to change what that profile searches for, with no manual state.json edit and no
-    /addprofile round-trip. Matched by keyword text only (ignores must_text), so re-running this
-    is idempotent. Never removes or reorders what's already there, and never touches a profile
-    whose name isn't in config.PROFILES (e.g. one a person built with /addprofile) — config.py
-    can only add to a profile it already owns, never invent or delete one. Returns True if it
-    changed anything, so the caller knows whether to persist."""
+    """Keeps a profile's "keywords" in sync with config.PROFILES (matched by profile name) —
+    adds any keyword config.py has that state.json doesn't yet, AND refreshes must_text for a
+    keyword both already have, so editing config.py (a new keyword, or tightening an existing
+    must_text regex — e.g. fixing a filter that was letting the wrong jobs through) and
+    redeploying is enough, with no manual state.json edit and no /addprofile round-trip. Never
+    removes or reorders a keyword, and never touches a profile whose name isn't in
+    config.PROFILES (e.g. one a person built with /addprofile) — config.py can only add to /
+    correct a profile it already owns, never invent or delete one. Returns True if it changed
+    anything, so the caller knows whether to persist."""
     changed = False
     for name, cfg_prof in PROFILES.items():
         prof = profiles.get(name)
         if not prof:
             continue
-        have = {kw for kw, _must_text in prof.get("keywords", [])}
+        kw_list = prof.setdefault("keywords", [])
+        by_kw = {kw: i for i, (kw, _must_text) in enumerate(kw_list)}
         for kw, must_text in cfg_prof.get("keywords", []):
-            if kw not in have:
-                prof.setdefault("keywords", []).append([kw, must_text])
-                have.add(kw)
+            if kw not in by_kw:
+                kw_list.append([kw, must_text])
+                by_kw[kw] = len(kw_list) - 1
+                changed = True
+            elif kw_list[by_kw[kw]][1] != must_text:
+                kw_list[by_kw[kw]][1] = must_text
                 changed = True
     return changed
 

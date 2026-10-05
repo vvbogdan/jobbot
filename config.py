@@ -46,7 +46,11 @@ SENIOR_WORDS = r"\b(senior|sr\.?|lead|principal|staff|architect|head of|cto|team
 
 EMBEDDED_TEXT = (
     r"embedded|firmware|rtos|yocto|buildroot|\bbsp\b|stm32|esp32|microcontroller|"
-    r"мікроконтролер|вбудован|linux kernel|device driver|драйвер"
+    r"мікроконтролер|вбудован|linux kernel|device driver|"
+    # "драйвер" alone also matches the common Ukrainian business idiom "драйвер
+    # зростання/росту" (growth driver) — require it NOT be followed by that, so a marketing/
+    # growth-role job (e.g. "User Acquisition Manager") can't sneak into Embedded via this word.
+    r"драйвер\w*\b(?!\s*(зростання|росту|змін|продаж|бізнесу|компані|команди|доходу|прибутку))"
 )
 
 # Embedded profile: Lviv/remote — priority (⭐, goes first in pushes and lists), Kyiv —
