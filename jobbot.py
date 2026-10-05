@@ -618,6 +618,29 @@ def _derive_keywords_from_old_feeds(prof):
     return list(recovered.items())
 
 
+def _sync_keywords_from_config(profiles):
+    """Adds any keyword config.PROFILES has for a profile (matched by name) that the live
+    state.json copy doesn't have yet — so editing config.py's keyword list and redeploying is
+    enough to change what that profile searches for, with no manual state.json edit and no
+    /addprofile round-trip. Matched by keyword text only (ignores must_text), so re-running this
+    is idempotent. Never removes or reorders what's already there, and never touches a profile
+    whose name isn't in config.PROFILES (e.g. one a person built with /addprofile) — config.py
+    can only add to a profile it already owns, never invent or delete one. Returns True if it
+    changed anything, so the caller knows whether to persist."""
+    changed = False
+    for name, cfg_prof in PROFILES.items():
+        prof = profiles.get(name)
+        if not prof:
+            continue
+        have = {kw for kw, _must_text in prof.get("keywords", [])}
+        for kw, must_text in cfg_prof.get("keywords", []):
+            if kw not in have:
+                prof.setdefault("keywords", []).append([kw, must_text])
+                have.add(kw)
+                changed = True
+    return changed
+
+
 def get_profiles():
     """The live set of profiles (state.json), seeding it from config.PROFILES on first use."""
     st = load_state()
@@ -642,6 +665,11 @@ def get_profiles():
         def _migrate(st):
             st["profiles"] = profiles
         state_update(_migrate)
+
+    if _sync_keywords_from_config(profiles):
+        def _sync(st):
+            st["profiles"] = profiles
+        state_update(_sync)
     return profiles
 
 
