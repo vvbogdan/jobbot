@@ -2139,7 +2139,11 @@ def check_reminders():
         j = st["jobs"][jid]
         text = t("reminder_text", hours=int(reminder_hours),
                  title=html.escape(j['title']), link=apply_link(j['link']))
-        if send_telegram_plain(chat, text):
+        buttons = [[
+            {"text": t("btn_applied"), "callback_data": f"applied|{jid}"},
+            {"text": t("btn_not_interested"), "callback_data": f"skip|{jid}"},
+        ]]
+        if send_telegram_plain(chat, text, buttons=buttons):
             def _mark(st, jid=jid):
                 jj = st.get("jobs", {}).get(jid)
                 if jj:
