@@ -68,6 +68,7 @@ the optional Work.ua scraper).
   pip install -r requirements.txt
 """
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -108,6 +109,8 @@ STATE_LOCK = threading.Lock()
 
 # MAX_AGE_DAYS, FIRST_RUN_LIMIT — see config.py (profile/preference settings live there now)
 JOBS_CACHE_DAYS = 14      # how many days to keep a job's full text for the "resume" button
+DEDUP_FINGERPRINT_DAYS = 30  # remember a sent job's description this long, to catch the same
+                              # company reposting near-identical text under a new vacancy ID
 REMINDER_HOURS = float(os.environ.get("REMINDER_HOURS", "20"))  # 0 = disable reminders
 REMINDER_CHECK_SEC = 600  # how often to check who's due for a reminder
 
@@ -195,6 +198,33 @@ def normalize_title(title):
     t = re.sub(r"[^\w\s]", " ", t, flags=re.UNICODE)
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+def desc_fingerprint(desc):
+    """Normalized hash of a job's description — used to catch the same company reposting
+    near-identical text under a brand-new vacancy ID (title/location tweaked, body unchanged).
+    Returns None for descriptions too short to fingerprint reliably (avoids false matches on
+    thin/partial text from some sources)."""
+    norm = re.sub(r"[^\w\s]", "", desc.lower(), flags=re.UNICODE)
+    norm = re.sub(r"\s+", " ", norm).strip()
+    if len(norm) < 200:
+        return None
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def find_duplicate_posting(st, desc):
+    """If this description's fingerprint was already sent (within DEDUP_FINGERPRINT_DAYS),
+    return a human-readable date string of when; otherwise None."""
+    fp = desc_fingerprint(desc)
+    if not fp:
+        return None
+    seen = st.get("desc_fingerprints", {}).get(fp)
+    if not seen:
+        return None
+    cutoff = time.time() - DEDUP_FINGERPRINT_DAYS * 86400
+    if seen.get("ts", 0) < cutoff:
+        return None
+    return datetime.fromtimestamp(seen["ts"]).strftime("%d.%m")
 
 
 def job_id(link):
@@ -510,6 +540,10 @@ def save_state(st):
     st["events"] = [e for e in st.get("events", []) if e.get("ts", 0) > ecut]
     scut = time.time() - SEEN_LOG_DAYS * 86400
     st["silent_seen_log"] = [e for e in st.get("silent_seen_log", []) if e.get("ts", 0) > scut]
+    dcut = time.time() - DEDUP_FINGERPRINT_DAYS * 86400
+    st["desc_fingerprints"] = {
+        k: v for k, v in st.get("desc_fingerprints", {}).items() if v.get("ts", 0) > dcut
+    }
     STATE_FILE.write_text(json.dumps(st, ensure_ascii=False))
 
 
@@ -1044,6 +1078,9 @@ def send_one(jid, rec, dry, st):
         st.setdefault("events", []).append({
             "ts": time.time(), "type": "sent", "resume_key": rec["resume_key"],
         })
+        fp = desc_fingerprint(rec["item"]["desc"])
+        if fp:
+            st.setdefault("desc_fingerprints", {})[fp] = {"ts": time.time(), "jid": jid}
     return ok
 
 
@@ -1059,6 +1096,10 @@ def run_once(dry=False):
                 mark_seen_silent(st, jid, rec, t("reason_too_old", days=MAX_AGE_DAYS))
             continue
         if jid not in st["seen"]:
+            when = find_duplicate_posting(st, rec["item"]["desc"])
+            if when:
+                mark_seen_silent(st, jid, rec, t("reason_duplicate_posting", when=when))
+                continue
             fresh.append((jid, rec))
     # priority jobs (AI agentic / Claude Code etc.) go first in the batch; within a group — oldest to newest
     fresh.sort(key=lambda x: (0 if x[1]["priority"] else 1, x[1]["item"]["pub"] or now))

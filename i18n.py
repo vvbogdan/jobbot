@@ -26,6 +26,7 @@ TRANSLATIONS = {
         "no_pending": "🎉 Немає вакансій, що очікують відгуку — усе розібрано.",
         "reason_too_old": "старіша за MAX_AGE_DAYS={days} дн.",
         "reason_first_run_limit": "перший запуск — понад ліміт FIRST_RUN_LIMIT={limit}",
+        "reason_duplicate_posting": "дублікат — такий самий опис вакансії вже надсилався {when}",
 
         # ── push buttons (send_telegram / send_pending_cards) ──
         "btn_open_apply": "📨 Відкрити / Відгукнутись",
@@ -270,6 +271,7 @@ TRANSLATIONS = {
         "no_pending": "🎉 No jobs awaiting a response — all done.",
         "reason_too_old": "older than MAX_AGE_DAYS={days} days",
         "reason_first_run_limit": "first run — over the FIRST_RUN_LIMIT={limit} cap",
+        "reason_duplicate_posting": "duplicate — the same job description was already sent {when}",
 
         "btn_open_apply": "📨 Open / Apply",
         "btn_tailor_resume": "📄 Tailor resume",
