@@ -33,7 +33,7 @@ TRANSLATIONS = {
         "btn_tailor_resume": "📄 Адаптувати резюме",
         "btn_regenerate": "🔄 Перегенерувати",
         "btn_cover_letter": "✉️ Супровідний лист",
-        "btn_applied": "✅ Відгукнувся",
+        "btn_applied": "✅ Цікаво",
         "btn_not_interested": "🚫 Не цікаво",
 
         # ── fmt_message (the push itself) ──
@@ -176,7 +176,9 @@ TRANSLATIONS = {
         "checklist_priority_header": "⭐ — Пріоритет (Львів/Remote, iOS, AI) —",
         "checklist_other_header": "— Інше —",
         "checklist_btn_open": "🔗 Відкрити",
-        "checklist_btn_applied": "✅ Відгукнувся",
+        "checklist_btn_applied": "✅ Цікаво",
+        "checklist_btn_not_interested": "🚫 Не цікаво",
+        "checklist_btn_undo": "↩️ Повернути",
         "checklist_btn_done": "✅ Готово",
         "checklist_btn_next_page": "➡️ Далі ({n})",
         "checklist_btn_bulk_dismiss_other": "🚫 Відхилити все «Інше» ({n})",
@@ -199,7 +201,7 @@ TRANSLATIONS = {
 
         # ── checklist callback toasts ──
         "toast_marked_not_interested": "🚫 Позначено як «не цікаво»",
-        "toast_marked_applied": "✅ Позначено як «відгукнувся»",
+        "toast_marked_applied": "✅ Позначено як «цікаво»",
         "toast_unmarked": "↩️ Позначку знято",
         "toast_job_gone": "⚠️ Вакансія вже зникла з кешу.",
         "toast_done": "✅ Готово",
@@ -277,7 +279,7 @@ TRANSLATIONS = {
         "btn_tailor_resume": "📄 Tailor resume",
         "btn_regenerate": "🔄 Regenerate",
         "btn_cover_letter": "✉️ Cover letter",
-        "btn_applied": "✅ Applied",
+        "btn_applied": "✅ Interested",
         "btn_not_interested": "🚫 Not interested",
 
         "push_deadline": "⏳ by {deadline}",
@@ -413,7 +415,9 @@ TRANSLATIONS = {
         "checklist_priority_header": "⭐ — Priority (Lviv/Remote, iOS, AI) —",
         "checklist_other_header": "— Other —",
         "checklist_btn_open": "🔗 Open",
-        "checklist_btn_applied": "✅ Applied",
+        "checklist_btn_applied": "✅ Interested",
+        "checklist_btn_not_interested": "🚫 Not interested",
+        "checklist_btn_undo": "↩️ Undo",
         "checklist_btn_done": "✅ Done",
         "checklist_btn_next_page": "➡️ Next ({n})",
         "checklist_btn_bulk_dismiss_other": "🚫 Dismiss all \"Other\" ({n})",
@@ -435,7 +439,7 @@ TRANSLATIONS = {
         "no_skipped": "📭 No jobs marked \"not interested\".",
 
         "toast_marked_not_interested": "🚫 Marked \"not interested\"",
-        "toast_marked_applied": "✅ Marked \"applied\"",
+        "toast_marked_applied": "✅ Marked \"interested\"",
         "toast_unmarked": "↩️ Mark removed",
         "toast_job_gone": "⚠️ The job has already dropped out of the cache.",
         "toast_done": "✅ Done",

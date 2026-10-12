@@ -1647,21 +1647,19 @@ def send_pending_cards(chat_id, limit=None):
         )
 
 
-def checklist_keyboard_rows(items):
+def checklist_keyboard_rows(items, mode="pending"):
     """items: a list of (jid, job-dict), ALREADY sorted by priority (job_priority_and_location)
     descending — the same way send_pending_checklist and send_skipped_checklist do. Builds TWO
-    rows per job: a ✅/⬜ checkbox button spanning the full width (so the title doesn't get cut
-    in half the way it did when "🔗 Open" split the row in two) and, below it, a row with
-    "🔗 Open" and "✅ Applied" side by side (both short, so they don't squeeze the title, which
-    is already on its own row). "✅ Applied" here lets you mark an application right away
-    without switching to card mode, if that's where you decided to apply from. The checkbox
-    shows ✅ if the job is CURRENTLY marked "not interested", otherwise ⬜ (+ a ⭐/🏙 badge).
-    Before the priority group and before the rest, it inserts a non-clickable
-    (callback_data "noop") header row — so the priority group (Lviv/remote, iOS, AI) is visually
+    rows per job: a non-clickable title row (callback_data "noop", + a ⭐/🏙 badge) and, below it,
+    one row of three action buttons — "✅ Цікаво" (mark_applied), "🔗 Відкрити" (open link), and
+    either "🚫 Не цікаво" (mode="pending", mark_not_interested) or "↩️ Повернути" (mode="skipped",
+    undo a previous "не цікаво"). Tapping any of the three removes both of that job's rows from
+    the keyboard in place (see the pchk_applied|/pchk_skip|/pchk_undo| dispatch code) — no
+    resend of the whole list. Before the priority group and before the rest, it inserts a
+    non-clickable header row — so the priority group (Lviv/remote, iOS, AI) is visually
     separated from the rest, and you can immediately see whether there's anything there before
-    going through the rest. Shared by /pending (where everything starts ⬜) and /skipped (where
-    everything starts ✅, since that's exactly the "not interested" list) — so the same button
-    (callback_data "pchk|<jid>") works the same way in both directions: mark or unmark."""
+    going through the rest. Shared by /pending (mode="pending") and /skipped (mode="skipped",
+    everything already marked "not interested" — "Повернути" sends it back to /pending)."""
     rows = []
     seen_priority_header = False
     seen_other_header = False
@@ -1673,13 +1671,18 @@ def checklist_keyboard_rows(items):
         if not priority and not seen_other_header:
             rows.append([{"text": t("checklist_other_header"), "callback_data": "noop"}])
             seen_other_header = True
-        mark = "✅ " if j.get("not_interested") else "⬜ "
         badge = "⭐ " if priority else ("🏙 " if loc_tag == "kyiv" else "")
-        title = (mark + badge + (j.get("title") or "?"))[:60]
-        rows.append([{"text": title, "callback_data": f"pchk|{jid}"}])
+        title = (badge + (j.get("title") or "?"))[:60]
+        rows.append([{"text": title, "callback_data": "noop"}])
+        third_button = (
+            {"text": t("checklist_btn_not_interested"), "callback_data": f"pchk_skip|{jid}"}
+            if mode == "pending" else
+            {"text": t("checklist_btn_undo"), "callback_data": f"pchk_undo|{jid}"}
+        )
         rows.append([
-            {"text": t("checklist_btn_open"), "url": apply_link(j.get("link", ""))},
             {"text": t("checklist_btn_applied"), "callback_data": f"pchk_applied|{jid}"},
+            third_button,
+            {"text": t("checklist_btn_open"), "url": apply_link(j.get("link", ""))},
         ])
     rows.append([{"text": t("checklist_btn_done"), "callback_data": "pchk_done"}])
     return rows
@@ -1694,9 +1697,9 @@ def checklist_keyboard_rows(items):
 MAX_KEYBOARD_BYTES = 3000
 
 
-def fit_checklist_to_telegram_limit(items, extra_rows_fn):
-    """Builds checklist_keyboard_rows(items) + extra_rows_fn(items) (buttons that depend on the
-    current set — e.g. "Dismiss all 'Other'" (N)) + "Done" at the end. If the serialized
+def fit_checklist_to_telegram_limit(items, extra_rows_fn, mode="pending"):
+    """Builds checklist_keyboard_rows(items, mode) + extra_rows_fn(items) (buttons that depend on
+    the current set — e.g. "Dismiss all 'Other'" (N)) + "Done" at the end. If the serialized
     keyboard is too big for Telegram, it progressively drops jobs from the END of the list
     (items is already sorted priority-first, so the least-priority ones go first) and rebuilds,
     until it fits — so the user always sees a working list, just a shorter one, rather than an
@@ -1704,7 +1707,7 @@ def fit_checklist_to_telegram_limit(items, extra_rows_fn):
     within pending_cards_limit."""
     shown = list(items)
     while True:
-        rows = checklist_keyboard_rows(shown)
+        rows = checklist_keyboard_rows(shown, mode=mode)
         done_row = rows.pop()
         full_rows = rows + extra_rows_fn(shown) + [done_row]
         size = len(json.dumps({"inline_keyboard": full_rows}, ensure_ascii=False).encode("utf-8"))
@@ -1714,17 +1717,16 @@ def fit_checklist_to_telegram_limit(items, extra_rows_fn):
 
 
 def send_pending_checklist(chat_id, limit=None, offset=0):
-    """The main /pending view: a single list with checkbox buttons (⬜/✅) and a direct link —
-    one row per job — to mark "not interested" right in the same message, instead of a separate
-    step through /pending -> "Mark not interested". Tapping a button toggles just its own state
-    in place (editMessageReplyMarkup in the dispatch code), without resending the whole list.
+    """The main /pending view: a title row + a row of three action buttons ("✅ Цікаво",
+    "🚫 Не цікаво", "🔗 Відкрити") per job, right in the same message — no separate step through
+    /pending -> "Mark not interested". Tapping one removes just that job's two rows in place
+    (editMessageReplyMarkup in the dispatch code), without resending the whole list.
     `offset` — which position in the sorted (priority-first) list this page starts from; when
     there are more jobs than fit in one message (the count limit or Telegram's byte limit), a
     "➡️ Next" button shows up at the bottom asking for the next page starting right where this
     one left off — without it you'd have to manually repeat /pending and scroll past the same
     start of the list every time. The last row switches to "card" mode (a separate message per
-    job with "Applied"/"Not interested"), since the checkboxes here can only mark "not
-    interested"."""
+    job, same three actions)."""
     if limit is None:
         limit = get_setting("pending_cards_limit")
     st = load_state()
@@ -1747,7 +1749,7 @@ def send_pending_checklist(chat_id, limit=None, offset=0):
         rows.append([{"text": t("checklist_btn_switch_to_cards"), "callback_data": "pending_cards"}])
         return rows
 
-    shown, rows = fit_checklist_to_telegram_limit(candidates, extra_rows)
+    shown, rows = fit_checklist_to_telegram_limit(candidates, extra_rows, mode="pending")
     next_offset = offset + len(shown)
     if next_offset < len(pending):
         done_row = rows.pop()
@@ -1762,11 +1764,12 @@ def send_pending_checklist(chat_id, limit=None, offset=0):
 
 
 def send_skipped_checklist(chat_id, limit=None, offset=0):
-    """List of jobs marked "not interested" (and not yet "Applied") — with the same ⬜/✅ buttons
-    as /pending, only reversed: here everything starts ✅, and you tap to UNMARK it. For the case
-    where the same job got reopened (the company reposted it) and you want to apply again —
-    unmarking it here immediately returns the job to "Pending" in /pending. `offset`/"➡️ Next" —
-    the same pagination as in /pending, for a long "not interested" list."""
+    """List of jobs marked "not interested" (and not yet "Applied") — same layout as /pending
+    (title row + action-button row per job), but "🚫 Не цікаво" is replaced with "↩️ Повернути"
+    (mode="skipped" in checklist_keyboard_rows), since everything here is already "not
+    interested". For the case where the same job got reopened (the company reposted it) and you
+    want to apply again — "Повернути" immediately returns the job to "Pending" in /pending.
+    `offset`/"➡️ Next" — the same pagination as in /pending, for a long "not interested" list."""
     if limit is None:
         limit = get_setting("pending_cards_limit")
     st = load_state()
@@ -1779,7 +1782,7 @@ def send_skipped_checklist(chat_id, limit=None, offset=0):
     skipped.sort(key=lambda x: (0 if job_priority_and_location(x[1])[0] else 1, -x[1].get("ts", 0)))
     offset = max(0, min(offset, len(skipped) - 1))
     candidates = skipped[offset:offset + limit]
-    shown, rows = fit_checklist_to_telegram_limit(candidates, lambda cur_shown: [])
+    shown, rows = fit_checklist_to_telegram_limit(candidates, lambda cur_shown: [], mode="skipped")
     next_offset = offset + len(shown)
     if next_offset < len(skipped):
         done_row = rows.pop()
@@ -1844,6 +1847,16 @@ def mark_not_interested(jid):
                     "ts": time.time(), "type": "skipped", "resume_key": j.get("resume_key"),
                 })
     state_update(_mark)
+
+
+def unmark_not_interested(jid):
+    """"↩️ Повернути" in /skipped — one-shot reverse of mark_not_interested, sending the job
+    back to /pending. Doesn't touch skip_logged, so the earlier "skipped" stats event stands."""
+    def _unmark(st):
+        j = st.get("jobs", {}).get(jid)
+        if j and j.get("not_interested"):
+            j["not_interested"] = False
+    state_update(_unmark)
 
 
 def toggle_not_interested(jid):
@@ -2003,7 +2016,7 @@ def poll_telegram_loop():
                         ).start()
                         threading.Thread(target=send_pending_checklist, args=(chat_id,), daemon=True).start()
                     elif data.startswith("pchk_applied|"):
-                        # "✅ Applied" right from the checklist (/pending or /skipped) — so there's
+                        # "✅ Цікаво" right from the checklist (/pending or /skipped) — so there's
                         # no need to switch to card mode when applying straight from here.
                         jid = data.split("|", 1)[1]
                         mark_applied(jid)
@@ -2013,8 +2026,46 @@ def poll_telegram_loop():
                         new_kb = []
                         for row in kb:
                             if any(b.get("callback_data") == data for b in row):
-                                # this row ("🔗 Open" + "✅ Applied") and the previous one (the
-                                # checkbox row with the title) belong to this job — remove both
+                                # this row (the 3 action buttons) and the previous one (the
+                                # non-clickable title row) belong to this job — remove both
+                                if new_kb:
+                                    new_kb.pop()
+                                continue
+                            new_kb.append(row)
+                        threading.Thread(
+                            target=edit_message_reply_markup,
+                            args=(chat_id, cq["message"]["message_id"], {"inline_keyboard": new_kb}),
+                            daemon=True,
+                        ).start()
+                    elif data.startswith("pchk_skip|"):
+                        # "🚫 Не цікаво" right from the /pending checklist.
+                        jid = data.split("|", 1)[1]
+                        mark_not_interested(jid)
+                        answer_callback_query(cq["id"], t("toast_marked_not_interested"))
+                        markup = cq["message"].get("reply_markup") or {}
+                        kb = markup.get("inline_keyboard", [])
+                        new_kb = []
+                        for row in kb:
+                            if any(b.get("callback_data") == data for b in row):
+                                if new_kb:
+                                    new_kb.pop()
+                                continue
+                            new_kb.append(row)
+                        threading.Thread(
+                            target=edit_message_reply_markup,
+                            args=(chat_id, cq["message"]["message_id"], {"inline_keyboard": new_kb}),
+                            daemon=True,
+                        ).start()
+                    elif data.startswith("pchk_undo|"):
+                        # "↩️ Повернути" right from the /skipped checklist — back to /pending.
+                        jid = data.split("|", 1)[1]
+                        unmark_not_interested(jid)
+                        answer_callback_query(cq["id"], t("toast_unmarked"))
+                        markup = cq["message"].get("reply_markup") or {}
+                        kb = markup.get("inline_keyboard", [])
+                        new_kb = []
+                        for row in kb:
+                            if any(b.get("callback_data") == data for b in row):
                                 if new_kb:
                                     new_kb.pop()
                                 continue
