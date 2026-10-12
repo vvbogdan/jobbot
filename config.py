@@ -39,8 +39,8 @@ PRIORITY_TEXT = (
 # Title keywords that are never interesting (not development roles) — applies to every profile.
 GLOBAL_EXCLUDE = (
     r"\b(aso|qa|aqa|sdet|tester|test engineer|support|marketing|recruiter|sales|"
-    r"designer|analyst|product owner|scrum master|hr|accountant|copywriter|"
-    r"buyer|media buyer|community manager)\b"
+    r"designer|analyst|product owner|product manager|scrum master|hr|accountant|copywriter|"
+    r"buyer|media buyer|community manager|user acquisition|growth manager)\b"
 )
 SENIOR_WORDS = r"\b(senior|sr\.?|lead|principal|staff|architect|head of|cto|team lead|tech lead)\b"
 
