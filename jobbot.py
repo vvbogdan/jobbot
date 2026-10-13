@@ -562,6 +562,19 @@ def load_state():
         return _cached_state
 
 
+def _firebase_active():
+    """Whether state should actually go to Firebase right now: the two env vars are set AND the
+    "use_firebase" setting (/set use_firebase 0|1, stored in state.json, default on) hasn't been
+    flipped off. Only save_state() consults the setting — load_state()'s very first bootstrap
+    call always tries Firebase when env-configured instead, since there's no state loaded yet to
+    read a stored override from. Flipping this off takes effect on the very next save (routes to
+    the local file instead); flipping it back on pushes everything that changed in the meantime
+    up to Firebase on the next change. It does NOT survive a Render restart by itself — Render
+    wipes the local file too, so a real restart falls back to whatever's in Firebase (or the env
+    vars being unset entirely, for a lasting disable — see README section 7b)."""
+    return firebase_store.enabled() and bool(get_setting("use_firebase"))
+
+
 def save_state(st):
     global _last_saved_json
     cutoff = time.time() - 45 * 86400
@@ -579,7 +592,7 @@ def save_state(st):
     new_json = json.dumps(st, ensure_ascii=False, sort_keys=True)
     if new_json == _last_saved_json:
         return  # nothing actually changed since the last successful save — skip the write
-    if firebase_store.enabled():
+    if _firebase_active():
         try:
             firebase_store.put_state(st)
             _last_saved_json = new_json
@@ -622,11 +635,12 @@ SETTINGS_SCHEMA = {
     "source_jooble": (int, 0, t("setting_desc_source_jooble")),
     "source_remoteok": (int, 0, t("setting_desc_source_remoteok")),
     "source_workua": (int, 0, t("setting_desc_source_workua")),
+    "use_firebase": (int, 1, t("setting_desc_use_firebase")),
 }
 
 # Settings that are strictly on/off (0 or 1), not an arbitrary number — set_setting() below
 # rejects anything else for these.
-BOOL_SETTINGS = {"source_jooble", "source_remoteok", "source_workua"}
+BOOL_SETTINGS = {"source_jooble", "source_remoteok", "source_workua", "use_firebase"}
 
 
 def get_setting(name):
