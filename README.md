@@ -86,9 +86,9 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
 - To disable quiet hours entirely: set `QUIET_HOURS_START` = `QUIET_HOURS_END` (e.g. both `0`).
 - `--dry-run` always ignores quiet hours — handy for testing.
 
-## 7. Backup and state restore (important on Render Free!)
-- **Render's free Web Service doesn't guarantee a persistent disk** — the disk can be wiped on
-  every redeploy/restart (and the free plan itself goes to sleep and restarts after a period of
+## 7. Backup and state restore
+- **Render doesn't guarantee a persistent disk on this plan** — the disk can be wiped on
+  every redeploy/restart (and the service itself can go to sleep and restart after a period of
   no traffic). Without a backup this means losing the entire history ("seen"/"jobs"/application
   stats) and re-spamming jobs you've already seen — this is exactly why jobs in `/pending` could
   always show "0h ago": the disk got wiped and the bot pushed them again.
@@ -96,7 +96,7 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
   hours (default 24), and on the `/backup` command — manually, any time. Every backup sent is
   immediately **pinned** in the chat (`pinChatMessage`).
 - **Auto-restore on startup** — when the bot starts (`--loop`) and the local `state.json` is
-  empty (the typical situation after a disk wipe on Render Free), it checks the pinned message
+  empty (the typical situation after a disk wipe), it checks the pinned message
   in the chat itself (`getChat` → `pinned_message` — this survives a restart, unlike
   `getUpdates`), and if it's a valid backup — automatically restores state from it, with no
   manual action needed. If the local state is already non-empty (the disk wasn't wiped) —
@@ -112,9 +112,9 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
   on startup works independently of this variable, as long as there's any pinned backup).
 
 ## 7b. Firebase Realtime Database (optional — real persistence, no manual restore)
-- The pinned-backup dance above exists because Render Free's disk isn't persistent. A free
-  Firebase Realtime Database (Spark plan — genuinely free, no card, Google just throttles you at
-  the quota rather than billing past it: 1 GB storage, 10 GB/month downloaded, plenty for this)
+- The pinned-backup dance above exists because Render's disk isn't persistent on this plan.
+  Firebase Realtime Database (Spark plan — no card needed, Google just throttles you at the
+  quota rather than billing past it: 1 GB storage, 10 GB/month downloaded, plenty for this)
   removes the need for it: state lives in Firebase instead of the local disk, survives every
   restart/redeploy automatically, with nothing to forward or restore by hand.
 - Setup (one-time, in the Firebase console — console.firebase.google.com):
@@ -132,13 +132,21 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
   pinned-backup restore. Both set — state is read from/written to Firebase instead, and the
   pinned-backup mechanism automatically becomes a last-resort fallback only (used if Firebase is
   empty or unreachable at startup) rather than the primary path.
-- To keep well inside the free quota, the bot only writes to Firebase when something in the state
+- To keep well inside the quota, the bot only writes to Firebase when something in the state
   actually changed (a new job found, a button tapped) — not on every `--loop` tick even if
   nothing happened. State is also kept in memory for the life of the process, so it's read from
   Firebase once at startup, not on every single check.
 - Needs the `google-auth` and `requests` packages (already in `requirements.txt`) — only
   imported when both env vars above are set, so a deployment that doesn't use Firebase doesn't
   need them installed for anything to work.
+- `/set use_firebase 0` — temporarily turns Firebase off at runtime (falls back to the local
+  file) without touching the env vars; `/set use_firebase 1` turns it back on. Default is `1`
+  whenever both env vars above are set.
+- Firebase Realtime Database keys can't contain `. # $ [ ] /` — some job IDs can (Jooble/RemoteOK
+  use the full job URL as their ID, slashes and all). `firebase_store.py` escapes these
+  characters transparently on every read/write, so this never needs any attention — mentioned
+  here only because an early version didn't do this and failed every write with a bare
+  `400 Bad Request`. Confirmed working in production as of October 2026.
 
 ## 7a. Settings via Telegram (no redeploy needed)
 - The `/settings` command shows the current values of 8 parameters: `reminder_hours`,
@@ -150,7 +158,7 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
   needed. An invalid key, a non-numeric value, or a value out of the allowed range (e.g. quiet
   hours outside 0-24) is rejected with an explanation, leaving the current setting untouched.
 - Values changed via `/set` are stored in `state.json` (`settings`), so they automatically
-  survive a disk wipe on Render Free along with the rest of the state — through the same
+  survive a disk wipe along with the rest of the state — through the same
   backup/auto-restore from section 7, no separate mechanism needed.
 - The environment variable for a parameter (e.g. `REMINDER_HOURS`) still sets the initial value
   until `/set` has been used for that key at least once; after the first `/set`, the value
@@ -199,11 +207,12 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
 - The resume/cover-letter buttons only work in `--loop` mode (a separate thread listens for
   Telegram commands).
 
-**Render Free goes to sleep without traffic (~15 min with no requests) — it needs an external
-ping.** If the `PORT` environment variable is set (Render sets it automatically), `jobbot.py`
-starts a minimal HTTP endpoint (`GET /` → `200 OK`) for exactly this purpose — the bot itself
-(Telegram polling, feeds) keeps running independently of it. To keep Render from sleeping:
-1. Sign up at [UptimeRobot](https://uptimerobot.com) (free).
+**On this plan, Render goes to sleep without traffic (~15 min with no requests) — it needs an
+external ping.** If the `PORT` environment variable is set (Render sets it automatically),
+`jobbot.py` starts a minimal HTTP endpoint (`GET /` → `200 OK`) for exactly this purpose — the
+bot itself (Telegram polling, feeds) keeps running independently of it. To keep Render from
+sleeping:
+1. Sign up at [UptimeRobot](https://uptimerobot.com).
 2. Add a new **HTTP(s)** monitor, URL — your Render service's address
    (`https://<your-app>.onrender.com/`), check interval — 5 minutes.
 3. Done — UptimeRobot regularly "wakes" the service, so the disk/bot doesn't go to sleep
@@ -223,7 +232,7 @@ edited directly from Telegram — no code changes or redeploy needed, see sectio
 `config.py` with its profiles is just the initial seed set for the first run. On first
 startup it's copied into `state.json`, and from then on `state.json` is the single source of
 truth — that's where the bot adds/removes profiles, and that's the file that gets backed up
-(section 7) — so your set of profiles won't get lost if the disk is reset on Render Free.
+(section 7) — so your set of profiles won't get lost if the disk is reset.
 
 - **`/profiles`** — list of current profiles (name, resume, how many feeds) with a 🗑 delete
   button under each.
@@ -241,13 +250,25 @@ profile, with no code changes at all.
 
 ## 12. Render — environment variables
 The start command stays `python3 jobbot.py --loop 60`. Add the dependency install to the
-build command: `pip install -r requirements.txt`. Required: `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`. Optional: `ANTHROPIC_MODEL`, `NTFY_TOPIC`,
-`REMINDER_HOURS`, `TZ_NAME`, `QUIET_HOURS_START`, `QUIET_HOURS_END`, `DIGEST_WEEKDAY`,
-`DIGEST_HOUR`, `BACKUP_INTERVAL_HOURS`, `FEED_FAIL_THRESHOLD`, `BOT_LANG`, `APPLICANT_NAME`
-(your name with no spaces — used only for the PDF resume file name, e.g.
-`JaneDoe_CV_...pdf`; if not set, the file is just named `Resume_CV_...pdf`), `JOOBLE_API_KEY`
-and `JOOBLE_LOCATION` (see section 15 — only needed if you turn the Jooble source on).
+build command: `pip install -r requirements.txt`.
+
+| Variable | Required? | Description |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | required | Telegram bot token. |
+| `TELEGRAM_CHAT_ID` | required | Chat the bot pushes to and listens in. |
+| `ANTHROPIC_API_KEY` | required | Used for resume/cover-letter tailoring. |
+| `ANTHROPIC_MODEL` | optional | Overrides the default model. |
+| `NTFY_TOPIC` | optional | Mirrors pushes to ntfy.sh as well. |
+| `REMINDER_HOURS` | optional | See section 6. |
+| `TZ_NAME` | optional | Timezone for quiet hours/digest (default `Europe/Kyiv`). |
+| `QUIET_HOURS_START` / `QUIET_HOURS_END` | optional | See section 6. |
+| `DIGEST_WEEKDAY` / `DIGEST_HOUR` | optional | See section 6. |
+| `BACKUP_INTERVAL_HOURS` | optional | See section 7. |
+| `FEED_FAIL_THRESHOLD` | optional | See section 8. |
+| `BOT_LANG` | optional | `uk` (default) or `en` — see section 13. |
+| `APPLICANT_NAME` | optional | Your name, no spaces — used only for the PDF resume file name (e.g. `JaneDoe_CV_...pdf`); if not set, the file is just named `Resume_CV_...pdf`. |
+| `JOOBLE_API_KEY` / `JOOBLE_LOCATION` | optional | See section 15 — only needed if you turn the Jooble source on. |
+| `FIREBASE_DB_URL` / `FIREBASE_SERVICE_ACCOUNT_JSON` | optional | See section 7b — only needed for the Firebase persistence backend. |
 
 ## 13. Bot language (i18n)
 All text the bot sends to Telegram/ntfy (pushes, buttons, command replies) lives in `i18n.py` —
@@ -260,70 +281,13 @@ copy the `"uk": { ... }` block in `i18n.py`, translate only the values (leave th
 `{placeholders}`/HTML tags like `<b>`, `<a href=...>` as they are — the code fills those in,
 not the translation), and add the new language as another section in `TRANSLATIONS`.
 
-## 14. Sharing the bot with someone else
-This repository is public, and `resumes.py` in it is already a safe example (section 4), while
-`config.py` is the author's real working set of profiles (there's nothing private in the role
-names themselves). If you want to give a copy to someone specific (a friend) without them
-seeing exactly what you're searching for — `./scripts/make_release.sh` packages a zip where
-`config.py` is additionally replaced with a single made-up profile, "🎨 Frontend (Junior+)"
-(`release_templates/config.example.py`). The script doesn't even read your real
-`config.py`/`resumes_local.py`.
-
-```
-./scripts/make_release.sh
-# -> dist/jobbot-example.zip
-```
-
-The result is `dist/jobbot-example.zip`: unzip it, deploy it (section 3 or 12), and the bot
-works immediately with the example profile; your friend adds their own real profile themselves
-via `/addprofile` (section 11), and their own resume by replacing the example in `resumes.py`
-with their own text. Re-run `make_release.sh` every time you update the code — a fresh archive
-always picks up the current `jobbot.py`/`i18n.py`.
-
 ## 15. Extra sources — Jooble, RemoteOK, Work.ua
-Besides DOU and Djinni, three more sources can be turned on — all off by default, since they're
-either less relevant, need extra setup, or more fragile than DOU/Djinni's RSS feeds. Turn one
-on with `/set source_jooble 1` / `/set source_remoteok 1` / `/set source_workua 1` in Telegram
-(same mechanism as section 7a — no redeploy, survives a disk reset). Each profile's `keywords`
-field in `config.py` (or the keywords you gave `/addprofile`) drives all three; nothing else to
-configure per-profile.
-
-- **Jooble** — a real job-search API (not an RSS feed), searched by keyword + location. Needs
-  a free `JOOBLE_API_KEY` (sign up at jooble.org/api/about) set as an env var on Render — this
-  is a credential, so it's not something you toggle from Telegram like the others. The free
-  plan's **500 requests is the key's entire lifetime quota, not per day** — with `--loop 60` and
-  several keywords, that adds up fast, so turn this on only if you're watching the quota (a
-  generous polling interval, or a key you don't mind burning through). Location defaults to
-  `Україна` — override with the `JOOBLE_LOCATION` env var. If you turn the setting on without
-  setting the key, the bot tells you so right in the `/set` reply and silently skips Jooble
-  until the key is added.
-- **RemoteOK** — a public JSON API, no key needed. Mostly **international remote jobs in
-  English, not Ukraine-specific** — useful mainly if some of your profiles are fine with fully
-  remote roles anywhere. RemoteOK's tags are a fixed vocabulary (`python`, `javascript`,
-  `devops`, `ios`, ...), not free text, so a keyword like "Embedded" or "C++" may just come back
-  empty — that's expected, not a bug.
-- **Work.ua** — has **no public RSS or API** (it did back in 2009; that was discontinued, and
-  `/rss/` on their site is a 404 today). This source is an HTML scraper instead, which makes it
-  the most fragile of the four: if work.ua changes its page layout, this can start quietly
-  returning nothing, without tripping `FEED_FAIL_THRESHOLD` (the HTTP request itself still
-  succeeds — there's just nothing recognizable in the response). Needs `beautifulsoup4`
-  (already in `requirements.txt`). Posting dates here are approximate — work.ua's listing page
-  only shows a relative age ("19 год. тому"), not an exact date.
-
-## 16. Project layout (for editing code)
-- `jobbot.py` — orchestration: state/settings, Telegram commands and buttons, pushes, PDF
-  resume/cover-letter generation, scheduling (`--loop`). Doesn't know how any particular source
-  fetches its data — just loops over `sources.PROVIDERS`.
-- `net.py` — the only place that talks to the network directly: a small retrying HTTP client
-  (`http()`) and an HTML-to-text helper (`strip_html()`), shared by `jobbot.py` (Telegram/ntfy
-  calls) and every module under `sources/`.
-- `sources/` — one file per job source (`dou.py`, `djinni.py`, `jooble.py`, `remoteok.py`,
-  `workua.py`), each exposing a `provider` object with `.name`, `.setting_name` (the `/set` key
-  that toggles it, or `None` for always-on), and `.fetch(keyword)` → a list of
-  `{title, link, desc, pub}` dicts. `sources/__init__.py` lists them all in `PROVIDERS`.
-  To add a 6th source: copy an existing module as a template, add it to `PROVIDERS`, and (if
-  it's optional) add its `/set` key to `SETTINGS_SCHEMA` in `jobbot.py` and its description to
-  `i18n.py` — nothing else needs to change.
-- `config.py` — profiles (`PROFILES`), each with a `keywords` list searched against every
-  active provider (section 10/11).
-- `i18n.py`, `resumes.py`/`resumes_local.py` — as described in sections 13 and 4.
+- Besides DOU and Djinni, three more sources can be turned on — all off by default.
+- Turn one on with `/set source_jooble 1` / `/set source_remoteok 1` / `/set source_workua 1` in
+  Telegram (no redeploy needed).
+- Each profile's `keywords` field in `config.py` (or the keywords you gave `/addprofile`) drives
+  all three; nothing else to configure per-profile.
+- **Jooble** — needs a `JOOBLE_API_KEY` env var (sign up at jooble.org/api/about); location
+  defaults to `Україна`, override with `JOOBLE_LOCATION`.
+- **RemoteOK** — no key needed.
+- **Work.ua** — no key needed (needs `beautifulsoup4`, already in `requirements.txt`).
