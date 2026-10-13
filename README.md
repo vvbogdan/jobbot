@@ -1,8 +1,9 @@
-# JobBot — fast push notifications for new jobs (DOU + Djinni) + resume auto-tailoring
+# jobbot — fast push notifications for new jobs (DOU + Djinni) + resume auto-tailoring
 
-Python 3.8+. Reads public RSS feeds (no login needed).
+Python 3.8+. Reads public RSS feeds (no login needed). One external dependency — `reportlab`
+(PDF generation).
 
-## 1. Telegram bot
+## 1. Telegram bot (2 minutes)
 1. In Telegram, message @BotFather → `/newbot` → you'll get a **token**.
 2. Send your bot anything (`/start`).
 3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` → find `"chat":{"id":123456789` — this is your **chat id**.
@@ -109,6 +110,35 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
   disk) — backup/auto-restore to Telegram still doesn't hurt as a second layer of protection.
 - `BACKUP_INTERVAL_HOURS=0` — disables auto-backup (only manual `/backup` remains; auto-restore
   on startup works independently of this variable, as long as there's any pinned backup).
+
+## 7b. Firebase Realtime Database (optional — real persistence, no manual restore)
+- The pinned-backup dance above exists because Render Free's disk isn't persistent. A free
+  Firebase Realtime Database (Spark plan — genuinely free, no card, Google just throttles you at
+  the quota rather than billing past it: 1 GB storage, 10 GB/month downloaded, plenty for this)
+  removes the need for it: state lives in Firebase instead of the local disk, survives every
+  restart/redeploy automatically, with nothing to forward or restore by hand.
+- Setup (one-time, in the Firebase console — console.firebase.google.com):
+  1. Create a project (any name, Analytics not needed).
+  2. Build → Realtime Database → Create Database (any region; "locked mode" for the rules).
+  3. Copy the database URL shown at the top of the Realtime Database page
+     (`https://<project>-default-rtdb.<region>.firebasedatabase.app`).
+  4. Project settings → Service accounts → Generate new private key — downloads a `.json` file.
+     **Never commit this file or post it anywhere** — it's a password to your database.
+- On Render, set two environment variables:
+  - `FIREBASE_DB_URL` — the database URL from step 3.
+  - `FIREBASE_SERVICE_ACCOUNT_JSON` — the **entire contents** of the downloaded `.json` key file,
+    pasted as one value.
+- Both unset (the default) — jobbot behaves exactly as in section 7, plain local file + Telegram
+  pinned-backup restore. Both set — state is read from/written to Firebase instead, and the
+  pinned-backup mechanism automatically becomes a last-resort fallback only (used if Firebase is
+  empty or unreachable at startup) rather than the primary path.
+- To keep well inside the free quota, the bot only writes to Firebase when something in the state
+  actually changed (a new job found, a button tapped) — not on every `--loop` tick even if
+  nothing happened. State is also kept in memory for the life of the process, so it's read from
+  Firebase once at startup, not on every single check.
+- Needs the `google-auth` and `requests` packages (already in `requirements.txt`) — only
+  imported when both env vars above are set, so a deployment that doesn't use Firebase doesn't
+  need them installed for anything to work.
 
 ## 7a. Settings via Telegram (no redeploy needed)
 - The `/settings` command shows the current values of 8 parameters: `reminder_hours`,

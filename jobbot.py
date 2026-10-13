@@ -101,6 +101,7 @@ from config import (
 )
 from net import http, strip_html
 from sources import PROVIDERS
+import firebase_store
 
 # ───────────────────────── SETTINGS ─────────────────────────
 
@@ -524,14 +525,45 @@ def notify(jid, labels, src, item, meta, dry, resume_key, priority=False):
 # ───────────────────────── STATE (state.json) ─────────────────────────
 
 
+# In-memory cache for the whole state — load_state() used to hit disk on every single call
+# (cheap for a local file, but with --loop 60 that's a full read+write of the whole state every
+# minute, which would blow through any free remote DB's bandwidth quota in days). Now the state
+# lives in this one process-wide dict for the life of the process: load_state() fetches it once
+# (from Firebase if configured, else the local file) and every caller afterwards gets the SAME
+# object — mutating it in place, the way state_update()/run_once() already do — so nothing needs
+# to change at any call site. save_state() then only actually writes out (to Firebase, or the
+# local file if Firebase isn't configured) when the content genuinely changed since the last
+# successful write, via the _last_saved_json comparison below.
+_cached_state = None
+_last_saved_json = None
+
+
 def load_state():
-    try:
-        return json.loads(STATE_FILE.read_text())
-    except Exception:  # noqa: BLE001
-        return {"seen": {}, "jobs": {}, "initialized": False, "tg_offset": 0}
+    global _cached_state
+    if _cached_state is not None:
+        return _cached_state
+    with STATE_LOCK:
+        if _cached_state is not None:  # another thread filled it while we were waiting
+            return _cached_state
+        st = None
+        if firebase_store.enabled():
+            try:
+                st = firebase_store.get_state()
+            except Exception as e:  # noqa: BLE001
+                log("✗ firebase load (falling back to local file):", e)
+        if not isinstance(st, dict):
+            try:
+                st = json.loads(STATE_FILE.read_text())
+            except Exception:  # noqa: BLE001
+                st = None
+        if not isinstance(st, dict):
+            st = {"seen": {}, "jobs": {}, "initialized": False, "tg_offset": 0}
+        _cached_state = st
+        return _cached_state
 
 
 def save_state(st):
+    global _last_saved_json
     cutoff = time.time() - 45 * 86400
     st["seen"] = {k: v for k, v in st["seen"].items() if v > cutoff}
     jcut = time.time() - JOBS_CACHE_DAYS * 86400
@@ -544,7 +576,24 @@ def save_state(st):
     st["desc_fingerprints"] = {
         k: v for k, v in st.get("desc_fingerprints", {}).items() if v.get("ts", 0) > dcut
     }
-    STATE_FILE.write_text(json.dumps(st, ensure_ascii=False))
+    new_json = json.dumps(st, ensure_ascii=False, sort_keys=True)
+    if new_json == _last_saved_json:
+        return  # nothing actually changed since the last successful save — skip the write
+    if firebase_store.enabled():
+        try:
+            firebase_store.put_state(st)
+            _last_saved_json = new_json
+            return
+        except Exception as e:  # noqa: BLE001
+            # Keep going — the in-memory state (and this run's results) aren't lost, just not
+            # yet persisted remotely. Writing locally too so at least THIS process instance has
+            # it on disk. Deliberately NOT updating _last_saved_json, so the next save_state()
+            # call retries the Firebase write even if nothing else changes in the meantime.
+            log("✗ firebase save (will retry next time; writing locally for now):", e)
+            STATE_FILE.write_text(new_json)
+            return
+    STATE_FILE.write_text(new_json)
+    _last_saved_json = new_json
 
 
 def state_update(fn):
@@ -2287,9 +2336,14 @@ def pin_chat_message(chat_id, message_id):
 
 
 def send_state_backup(chat_id, note=""):
-    if not STATE_FILE.exists():
+    # With Firebase configured, save_state() normally doesn't touch the local file at all — so
+    # write the CURRENT in-memory state there first, otherwise this would back up a stale or
+    # missing file instead of what's actually live.
+    st = load_state()
+    if not (st.get("jobs") or st.get("seen")):
         send_telegram_plain(chat_id, t("no_state_to_backup"))
         return False
+    STATE_FILE.write_text(json.dumps(st, ensure_ascii=False))
     caption = t("backup_caption", date=datetime.now().strftime('%d.%m.%Y %H:%M'))
     if note:
         caption += f"\n{note}"
@@ -2338,7 +2392,9 @@ def backup_loop():
 
 def handle_restore_document(chat_id, document):
     """If a file that looks like one of our own backups (name starts with 'state' and ends in
-    .json) is sent into the chat — restores state.json from it."""
+    .json) is sent into the chat — restores state.json (in memory, and Firebase if configured)
+    from it."""
+    global _cached_state, _last_saved_json
     filename = (document.get("file_name") or "").lower()
     if not (filename.startswith("state") and filename.endswith(".json")):
         return  # not one of our backups — ignore silently
@@ -2349,7 +2405,9 @@ def handle_restore_document(chat_id, document):
         if not isinstance(data, dict) or "jobs" not in data or "seen" not in data:
             raise ValueError(t("restore_invalid_file"))
         with STATE_LOCK:
-            STATE_FILE.write_text(raw)
+            _cached_state = data
+            _last_saved_json = None  # force save_state() below to actually persist this
+        save_state(_cached_state)  # push the restored data to Firebase (or local file) right away
         send_telegram_plain(
             chat_id,
             t("state_restored", jobs=len(data.get('jobs', {})), seen=len(data.get('seen', {}))),
@@ -2360,17 +2418,20 @@ def handle_restore_document(chat_id, document):
 
 
 def restore_from_pinned_backup():
-    """Called once at startup (--loop). If the local state.json is empty (typical for Render
-    Free — the disk isn't persistent and gets wiped on every restart/redeploy), looks for the
+    """Called once at startup (--loop). With Firebase configured, load_state() already pulled
+    real persisted state from there, so this is now a last-resort fallback (Firebase misconfigured,
+    down, or not set up at all) — if the state we have is empty (typical for Render Free without
+    Firebase: the disk isn't persistent and gets wiped on every restart/redeploy), looks for the
     latest pinned backup in the chat on its own (getChat -> pinned_message, which survives a bot
     restart, unlike getUpdates) and restores the state from it — no need to manually forward the
     file every time."""
+    global _cached_state, _last_saved_json
     token, chat = tg_token(), tg_chat()
     if not (token and chat):
         return
     st = load_state()
     if st.get("jobs") or st.get("seen"):
-        return  # local state isn't empty — the disk wasn't wiped, nothing to restore
+        return  # already have real state (from Firebase or local disk) — nothing to restore
     try:
         raw = http(f"https://api.telegram.org/bot{token}/getChat?chat_id={chat}", timeout=15, retries=1)
         info = json.loads(raw)
@@ -2388,7 +2449,9 @@ def restore_from_pinned_backup():
         if not isinstance(data, dict) or "jobs" not in data or "seen" not in data:
             raise ValueError(t("restore_invalid_file"))
         with STATE_LOCK:
-            STATE_FILE.write_text(backup_raw)
+            _cached_state = data
+            _last_saved_json = None  # force save_state() below to actually persist this
+        save_state(_cached_state)  # push the restored data to Firebase (or local file) right away
         log(f"auto-restore: state restored from the pinned backup "
             f"({len(data.get('jobs', {}))} jobs, {len(data.get('seen', {}))} seen)")
         send_telegram_plain(

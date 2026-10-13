@@ -1,3 +1,5 @@
 reportlab
 tzdata
 beautifulsoup4
+google-auth
+requests
