@@ -715,6 +715,29 @@ def _derive_keywords_from_old_feeds(prof):
     return list(recovered.items())
 
 
+def _repair_truncated_keyword_pairs(profiles):
+    """Firebase RTDB treats a null value as "delete this path" — including a null that's an
+    element of a list, so a (keyword, None) pair written before firebase_store.py learned to
+    guard against this came back as a 1-element ["keyword"] list, breaking every
+    "for keyword, must_text in ..." unpack below (and in collect()) with "not enough values to
+    unpack". firebase_store.py now encodes None safely so this won't recur, but data already
+    sitting in Firebase (or an old local state.json saved during the window before that fix)
+    still needs patching back to 2-element pairs once. Returns True if anything was patched."""
+    changed = False
+    for prof in profiles.values():
+        kw_list = prof.get("keywords")
+        if not isinstance(kw_list, list):
+            continue
+        for i, pair in enumerate(kw_list):
+            if isinstance(pair, (list, tuple)) and len(pair) < 2:
+                kw_list[i] = [pair[0] if pair else None, None]
+                changed = True
+            elif not isinstance(pair, (list, tuple)):
+                kw_list[i] = [pair, None]
+                changed = True
+    return changed
+
+
 def _sync_keywords_from_config(profiles):
     """Keeps a profile's "keywords" in sync with config.PROFILES (matched by profile name) —
     adds any keyword config.py has that state.json doesn't yet, AND refreshes must_text for a
@@ -767,6 +790,11 @@ def get_profiles():
         def _migrate(st):
             st["profiles"] = profiles
         state_update(_migrate)
+
+    if _repair_truncated_keyword_pairs(profiles):
+        def _repair(st):
+            st["profiles"] = profiles
+        state_update(_repair)
 
     if _sync_keywords_from_config(profiles):
         def _sync(st):

@@ -28,6 +28,13 @@ _db_url = None
 # dict key on the way in/out of Firebase, transparently, so the rest of the bot never knows.
 _FORBIDDEN_KEY_CHARS = ".#$[]/"
 
+# Firebase RTDB treats *any* null value as "delete this path" — including a null that's an
+# element of a list, e.g. the ("iOS", None) keyword/must_text pairs in a profile's "keywords".
+# A PUT of ["iOS", None] is stored (and read back) as the single-element ["iOS"], silently
+# shortening the pair and breaking every "for keyword, must_text in ..." unpack in jobbot.py.
+# Swap None for this sentinel on the way in, and back on the way out, so it survives intact.
+_NULL_SENTINEL = {"__jobbot_null__": True}
+
 
 def enabled():
     return bool(os.environ.get("FIREBASE_DB_URL") and os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON"))
@@ -44,19 +51,23 @@ def _decode_key(k):
     return re.sub(r"%([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), k)
 
 
-def _encode_keys(obj):
+def _encode(obj):
+    if obj is None:
+        return dict(_NULL_SENTINEL)
     if isinstance(obj, dict):
-        return {_encode_key(k): _encode_keys(v) for k, v in obj.items()}
+        return {_encode_key(k): _encode(v) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_encode_keys(v) for v in obj]
+        return [_encode(v) for v in obj]
     return obj
 
 
-def _decode_keys(obj):
+def _decode(obj):
     if isinstance(obj, dict):
-        return {_decode_key(k): _decode_keys(v) for k, v in obj.items()}
+        if obj == _NULL_SENTINEL:
+            return None
+        return {_decode_key(k): _decode(v) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_decode_keys(v) for v in obj]
+        return [_decode(v) for v in obj]
     return obj
 
 
@@ -100,7 +111,7 @@ def get_state(timeout=20):
     resp = session.get(f"{_db_url}/state.json", timeout=timeout)
     _raise_with_body(resp)
     data = resp.json()
-    return _decode_keys(data) if data is not None else data
+    return _decode(data) if data is not None else data
 
 
 def put_state(data, timeout=20):
@@ -111,7 +122,7 @@ def put_state(data, timeout=20):
     # allow_nan=False: a NaN/Infinity anywhere in the state makes json.dumps emit non-standard
     # JSON that Firebase's REST API rejects with a bare 400 and no useful body — catch it here
     # with a clear local error instead of a mystery HTTP failure.
-    payload = json.dumps(_encode_keys(data), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    payload = json.dumps(_encode(data), ensure_ascii=False, allow_nan=False).encode("utf-8")
     resp = session.put(
         f"{_db_url}/state.json",
         data=payload,
