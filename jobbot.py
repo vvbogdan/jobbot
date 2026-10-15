@@ -881,8 +881,10 @@ def build_profiles_text():
 
 def profiles_keyboard():
     profiles = get_profiles()
+    # One tap only arms the row (delprof_ask|) — it takes a second tap on the confirm button
+    # (delprof|) to actually delete, so a stray/accidental tap on the list can't wipe a profile.
     rows = [[{"text": t("profiles_delete_btn", label=label),
-              "callback_data": f"delprof|{zlib.crc32(label.encode())}"}]
+              "callback_data": f"delprof_ask|{zlib.crc32(label.encode())}"}]
             for label in profiles]
     return {"inline_keyboard": rows} if rows else None
 
@@ -2240,6 +2242,37 @@ def poll_telegram_loop():
                         ).start()
                         threading.Thread(target=send_skipped_checklist, args=(chat_id,),
                                           kwargs={"offset": next_offset}, daemon=True).start()
+                    elif data.startswith("delprof_ask|"):
+                        # First tap only arms this one row with a confirm/cancel pair — nothing
+                        # is deleted yet (see profiles_keyboard()).
+                        crc = data.split("|", 1)[1]
+                        answer_callback_query(cq["id"])
+                        markup = cq["message"].get("reply_markup") or {}
+                        kb = markup.get("inline_keyboard", [])
+                        new_kb = []
+                        for row in kb:
+                            if any(b.get("callback_data") == data for b in row):
+                                new_kb.append([
+                                    {"text": t("profiles_delete_confirm_btn"),
+                                     "callback_data": f"delprof|{crc}"},
+                                    {"text": t("profiles_delete_cancel_btn"),
+                                     "callback_data": f"delprof_cancel|{crc}"},
+                                ])
+                            else:
+                                new_kb.append(row)
+                        threading.Thread(
+                            target=edit_message_reply_markup,
+                            args=(chat_id, cq["message"]["message_id"], {"inline_keyboard": new_kb}),
+                            daemon=True,
+                        ).start()
+                    elif data.startswith("delprof_cancel|"):
+                        answer_callback_query(cq["id"], t("toast_cancelled"))
+                        threading.Thread(
+                            target=edit_message_reply_markup,
+                            args=(chat_id, cq["message"]["message_id"],
+                                  profiles_keyboard() or {"inline_keyboard": []}),
+                            daemon=True,
+                        ).start()
                     elif data.startswith("delprof|"):
                         crc = data.split("|", 1)[1]
                         removed = delete_profile_by_crc(crc)
