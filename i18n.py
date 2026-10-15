@@ -37,6 +37,7 @@ TRANSLATIONS = {
         "btn_not_interested": "🚫 Не цікаво",
 
         # ── fmt_message (the push itself) ──
+        "push_reopened": "🔄 <i>Вакансію оновили — схоже, набір знову відкритий</i>",
         "push_deadline": "⏳ до {deadline}",
         "push_experience": "досвід: {years}+ р.",
         "push_location_lviv_remote": "📍 Львів/Remote",
@@ -114,6 +115,7 @@ TRANSLATIONS = {
         "filter_reason_too_old": "застаріла вакансія",
         "filter_reason_duplicate_posting": "дубль іншої вакансії",
         "filter_reason_first_run_limit": "обрізано лімітом першого запуску",
+        "filter_reason_reopened": "знову відкрито (повторний пуш)",
 
         # ── /settings, /set ──
         "settings_header": "⚙️ <b>Налаштування</b> — змінити: <code>/set ключ значення</code>",
@@ -302,6 +304,7 @@ TRANSLATIONS = {
         "btn_applied": "✅ Interested",
         "btn_not_interested": "🚫 Not interested",
 
+        "push_reopened": "🔄 <i>Posting was updated — looks like it's open again</i>",
         "push_deadline": "⏳ by {deadline}",
         "push_experience": "experience: {years}+ yr",
         "push_location_lviv_remote": "📍 Lviv/Remote",
@@ -377,6 +380,7 @@ TRANSLATIONS = {
         "filter_reason_too_old": "too old",
         "filter_reason_duplicate_posting": "duplicate of another posting",
         "filter_reason_first_run_limit": "trimmed by first-run limit",
+        "filter_reason_reopened": "reopened (pushed again)",
 
         "settings_header": "⚙️ <b>Settings</b> — change with: <code>/set key value</code>",
         "settings_line": "• <code>{name}</code> = {value}{mark}\n  {desc}",

@@ -110,15 +110,21 @@ STATE_LOCK = threading.Lock()
 
 # MAX_AGE_DAYS, FIRST_RUN_LIMIT — see config.py (profile/preference settings live there now)
 JOBS_CACHE_DAYS = 14      # how many days to keep a job's full text for the "resume" button
-SEEN_RETENTION_DAYS = 120  # remember a job's id this long before it's eligible to be treated as
-                            # "new" again — recruiters sometimes bump the same DOU/Djinni listing
-                            # (same vacancy id, just a refreshed publish date) weeks or months
-                            # later; too short a window here makes the bot re-send it as if it
-                            # were a brand new posting
+SEEN_RETENTION_DAYS = 120  # pure memory cap — how long a job id is kept in "seen" at all before
+                            # it's pruned from state.json. The actual "recruiter reopened this
+                            # posting" detection doesn't wait on this (see REOPEN_GAP_SEC below);
+                            # this is only the outer bound for how long state.json remembers
+                            # anything, so it doesn't grow forever.
 DEDUP_FINGERPRINT_DAYS = 120  # remember a sent job's description this long, to catch the same
-                               # company reposting near-identical text under a new vacancy id —
-                               # kept equal to SEEN_RETENTION_DAYS so a same-id bump and a
-                               # new-id reposting are forgotten on the same schedule
+                               # company reposting near-identical text under a new vacancy id
+
+# DOU/Djinni's RSS <pubDate> isn't fixed at first-posted — a recruiter "bumping"/refreshing their
+# listing (to signal the role is open again / back near the top of DOU's own site) changes it,
+# with the vacancy id staying the same. If the pubDate we see now is at least this much newer
+# than the pubDate we saw the last time we sent this id, treat it as reopened and push it again,
+# instead of silently treating "already in seen" as "nothing to do here forever".
+REOPEN_GAP_SEC = 2 * 86400  # 2 days — enough to ignore minor feed jitter, short enough to catch
+                             # a genuine bump quickly
 REMINDER_HOURS = float(os.environ.get("REMINDER_HOURS", "20"))  # 0 = disable reminders
 REMINDER_CHECK_SEC = 600  # how often to check who's due for a reminder
 
@@ -397,13 +403,15 @@ def format_age(age_h):
     return t("age_hours", n=int(age_h)) if age_h < 48 else t("age_days", n=int(age_h / 24))
 
 
-def fmt_message(labels, src, item, meta, priority=False):
+def fmt_message(labels, src, item, meta, priority=False, reopened=False):
     title = html.escape(item["title"])
     star = "⭐ " if priority else ""
     # labels are profile names (e.g. "🐍 Python (Junior, <2 years)") and may contain "<"/">" —
     # unescaped, Telegram treats that as an unsupported HTML tag and rejects the WHOLE push
     labels_str = html.escape(" · ".join(labels))
     lines = [f"{star}{labels_str}  <i>({src})</i>", f"<b>{title}</b>"]
+    if reopened:
+        lines.append(t("push_reopened"))
     d = item["desc"].replace("\n", " ")
     extra = []
     company = meta.get("company")
@@ -526,9 +534,9 @@ def send_ntfy(title, text, url):
         return False
 
 
-def notify(jid, labels, src, item, meta, dry, resume_key, priority=False):
+def notify(jid, labels, src, item, meta, dry, resume_key, priority=False, reopened=False):
     url = apply_link(item["link"])
-    text = fmt_message(labels, src, item, meta, priority=priority)
+    text = fmt_message(labels, src, item, meta, priority=priority, reopened=reopened)
     if dry:
         print("─" * 60)
         print(re.sub(r"</?[bi]>", "", html.unescape(text)))
@@ -599,7 +607,7 @@ def _firebase_active():
 def save_state(st):
     global _last_saved_json
     cutoff = time.time() - SEEN_RETENTION_DAYS * 86400
-    st["seen"] = {k: v for k, v in st["seen"].items() if v > cutoff}
+    st["seen"] = {k: v for k, v in st["seen"].items() if _seen_ts(v) > cutoff}
     jcut = time.time() - JOBS_CACHE_DAYS * 86400
     st["jobs"] = {k: v for k, v in st.get("jobs", {}).items() if v.get("ts", 0) > jcut}
     ecut = time.time() - 60 * 86400
@@ -1156,10 +1164,28 @@ def deserialize_rec(d):
     return d["jid"], rec
 
 
+def _seen_ts(entry):
+    """st["seen"] values used to be a bare float (time.time() of when we marked it). Now they're
+    {"ts":, "pub":} so a later reopen-bump can be detected (see REOPEN_GAP_SEC) — this reads the
+    wall-clock half back out regardless of which shape is on disk (old local state.json / old
+    Firebase data, or one that just got migrated)."""
+    return entry.get("ts", 0) if isinstance(entry, dict) else (entry or 0)
+
+
+def _seen_pub(entry):
+    """The job's own pubDate (epoch seconds) at the time we last marked it seen, or None if we
+    don't know (legacy entry, or the feed had no pubDate) — in which case reopen-bump detection
+    simply can't fire for this id until it's marked again under the new shape."""
+    return entry.get("pub") if isinstance(entry, dict) else None
+
+
 def mark_seen(st, jid, rec=None):
-    st["seen"][jid] = time.time()
+    pub = (rec or {}).get("item", {}).get("pub")
+    pub_epoch = pub.timestamp() if pub else None
+    ts = time.time()
+    st["seen"][jid] = {"ts": ts, "pub": pub_epoch}
     for other in (rec or {}).get("dup_ids", []):
-        st["seen"][other] = time.time()
+        st["seen"][other] = {"ts": ts, "pub": pub_epoch}
 
 
 def mark_seen_silent(st, jid, rec, reason):
@@ -1191,7 +1217,7 @@ def send_one(jid, rec, dry, st):
         "location_tag": rec["meta"].get("location_tag"),
     }
     ok = notify(jid, rec["labels"], rec["src"], rec["item"], rec["meta"], dry,
-                rec["resume_key"], priority=rec["priority"])
+                rec["resume_key"], priority=rec["priority"], reopened=rec.get("reopened", False))
     if ok and not dry:
         mark_seen(st, jid, rec)
         st.setdefault("events", []).append({
@@ -1215,7 +1241,8 @@ def run_once(dry=False):
                 mark_seen_silent(st, jid, rec, t("reason_too_old", days=MAX_AGE_DAYS))
                 filter_counts["too_old"] = filter_counts.get("too_old", 0) + 1
             continue
-        if jid not in st["seen"]:
+        seen_entry = st["seen"].get(jid)
+        if seen_entry is None:
             when = find_duplicate_posting(st, rec["item"]["desc"])
             if when:
                 mark_seen_silent(st, jid, rec, t("reason_duplicate_posting", when=when))
@@ -1223,7 +1250,17 @@ def run_once(dry=False):
                 continue
             fresh.append((jid, rec))
         else:
-            filter_counts["already_seen"] = filter_counts.get("already_seen", 0) + 1
+            seen_pub = _seen_pub(seen_entry)
+            cur_pub = pub.timestamp() if pub else None
+            if seen_pub and cur_pub and cur_pub - seen_pub > REOPEN_GAP_SEC:
+                # same vacancy id, but the recruiter bumped pubDate — DOU/Djinni's way of
+                # signaling "this is open again", not a feed glitch. Push it again instead of
+                # treating "already in seen" as final.
+                rec["reopened"] = True
+                fresh.append((jid, rec))
+                filter_counts["reopened"] = filter_counts.get("reopened", 0) + 1
+            else:
+                filter_counts["already_seen"] = filter_counts.get("already_seen", 0) + 1
     # priority jobs (AI agentic / Claude Code etc.) go first in the batch; within a group — oldest to newest
     fresh.sort(key=lambda x: (0 if x[1]["priority"] else 1, x[1]["item"]["pub"] or now))
 
