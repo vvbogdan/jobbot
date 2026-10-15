@@ -110,8 +110,15 @@ STATE_LOCK = threading.Lock()
 
 # MAX_AGE_DAYS, FIRST_RUN_LIMIT — see config.py (profile/preference settings live there now)
 JOBS_CACHE_DAYS = 14      # how many days to keep a job's full text for the "resume" button
-DEDUP_FINGERPRINT_DAYS = 30  # remember a sent job's description this long, to catch the same
-                              # company reposting near-identical text under a new vacancy ID
+SEEN_RETENTION_DAYS = 120  # remember a job's id this long before it's eligible to be treated as
+                            # "new" again — recruiters sometimes bump the same DOU/Djinni listing
+                            # (same vacancy id, just a refreshed publish date) weeks or months
+                            # later; too short a window here makes the bot re-send it as if it
+                            # were a brand new posting
+DEDUP_FINGERPRINT_DAYS = 120  # remember a sent job's description this long, to catch the same
+                               # company reposting near-identical text under a new vacancy id —
+                               # kept equal to SEEN_RETENTION_DAYS so a same-id bump and a
+                               # new-id reposting are forgotten on the same schedule
 REMINDER_HOURS = float(os.environ.get("REMINDER_HOURS", "20"))  # 0 = disable reminders
 REMINDER_CHECK_SEC = 600  # how often to check who's due for a reminder
 
@@ -591,7 +598,7 @@ def _firebase_active():
 
 def save_state(st):
     global _last_saved_json
-    cutoff = time.time() - 45 * 86400
+    cutoff = time.time() - SEEN_RETENTION_DAYS * 86400
     st["seen"] = {k: v for k, v in st["seen"].items() if v > cutoff}
     jcut = time.time() - JOBS_CACHE_DAYS * 86400
     st["jobs"] = {k: v for k, v in st.get("jobs", {}).items() if v.get("ts", 0) > jcut}
