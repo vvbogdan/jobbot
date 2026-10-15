@@ -77,7 +77,6 @@ import sys
 import threading
 import time
 import urllib.parse
-import uuid
 import zlib
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -102,6 +101,12 @@ from config import (
 from net import http, strip_html
 from sources import PROVIDERS
 import firebase_store
+from logutil import log
+from telegram_api import (
+    tg_token, tg_chat, is_authorized, send_telegram_plain, multipart_encode,
+    send_telegram_document, answer_callback_query, edit_message_reply_markup,
+    get_updates, fetch_telegram_file, pin_chat_message,
+)
 
 # ───────────────────────── SETTINGS ─────────────────────────
 
@@ -207,13 +212,12 @@ CLOSED_TEXT = (
 # ───────────────────────── HELPERS ─────────────────────────
 
 
-def log(*a):
-    print(datetime.now().strftime("%H:%M:%S"), *a, flush=True)
-
-
-# http(), strip_html(), parse_rss() moved to net.py / sources/_rss.py — imported at the
-# top of this file. fetch_jooble()/fetch_remoteok()/fetch_workua() moved to sources/*.py —
-# see sources/__init__.py (PROFILES' "keywords" + PROVIDERS drive collect() below).
+# log() moved to logutil.py; http()/strip_html()/parse_rss() live in net.py / sources/_rss.py;
+# fetch_jooble()/fetch_remoteok()/fetch_workua() moved to sources/*.py — see sources/__init__.py
+# (PROFILES' "keywords" + PROVIDERS drive collect() below). tg_token()/tg_chat()/is_authorized()/
+# send_telegram_plain()/send_telegram_document()/multipart_encode()/answer_callback_query()/
+# edit_message_reply_markup()/get_updates()/fetch_telegram_file()/pin_chat_message() all moved
+# to telegram_api.py — imported at the top of this file.
 
 
 def normalize_title(title):
@@ -448,14 +452,6 @@ def fmt_message(labels, src, item, meta, priority=False, reopened=False):
 # ───────────────────────── PUSHES ─────────────────────────
 
 
-def tg_token():
-    return os.environ.get("TELEGRAM_BOT_TOKEN")
-
-
-def tg_chat():
-    return os.environ.get("TELEGRAM_CHAT_ID")
-
-
 def send_telegram(text, url=None, jid=None, resume_key=None):
     token, chat = tg_token(), tg_chat()
     if not (token and chat):
@@ -495,29 +491,6 @@ def send_telegram(text, url=None, jid=None, resume_key=None):
     # error (e.g. Telegram flood control from a burst of pushes), and it needs its own log line.
     log("✗ sendMessage (after 3 attempts):", last_err)
     return False
-
-
-def send_telegram_plain(chat_id, text, buttons=None, keyboard=None):
-    """Returns the sent message's message_id (int), or None/falsy on failure — deliberately
-    compatible with the previous boolean behavior (message_id is always > 0, so code that just
-    checked the result as True/False still works), while code that actually needs the
-    message_id (e.g. to later edit the keyboard under that same message — see
-    edit_message_reply_markup) now has it available."""
-    token = tg_token()
-    if not token:
-        return None
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
-    if keyboard is not None:
-        payload["reply_markup"] = json.dumps(keyboard)
-    elif buttons:
-        payload["reply_markup"] = json.dumps({"inline_keyboard": buttons})
-    try:
-        raw = http(f"https://api.telegram.org/bot{token}/sendMessage",
-                   data=urllib.parse.urlencode(payload).encode(), timeout=20, retries=1)
-        return json.loads(raw).get("result", {}).get("message_id")
-    except RuntimeError as e:
-        log("✗ sendMessage:", e)
-        return None
 
 
 def send_ntfy(title, text, url):
@@ -1489,77 +1462,6 @@ def render_resume_pdf(markup_text, out_path):
     doc.build(story)
 
 
-def multipart_encode(fields, file_field, filename, file_bytes, mime="application/pdf"):
-    boundary = uuid.uuid4().hex
-    parts = []
-    for k, v in fields.items():
-        parts.append(
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
-        )
-    parts.append(
-        (f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; '
-         f'filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n').encode()
-    )
-    parts.append(file_bytes)
-    parts.append(f"\r\n--{boundary}--\r\n".encode())
-    return b"".join(parts), boundary
-
-
-def send_telegram_document(chat_id, file_path, filename, caption="", mime="application/pdf", buttons=None):
-    """Returns the sent document's message_id (int), or None on failure. message_id is used,
-    among other things, to immediately pin the backup (see pin_chat_message)."""
-    token = tg_token()
-    if not token:
-        return None
-    file_bytes = Path(file_path).read_bytes()
-    fields = {"chat_id": str(chat_id), "caption": caption[:1024]}
-    if buttons:
-        fields["reply_markup"] = json.dumps({"inline_keyboard": buttons})
-    body, boundary = multipart_encode(
-        fields, "document", filename, file_bytes, mime=mime,
-    )
-    try:
-        raw = http(f"https://api.telegram.org/bot{token}/sendDocument", data=body,
-                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-                    timeout=60, retries=1)
-        return json.loads(raw).get("result", {}).get("message_id")
-    except RuntimeError as e:
-        log("✗ sendDocument:", e)
-        return None
-    except (ValueError, KeyError) as e:
-        log("✗ sendDocument (parse):", e)
-        return None
-
-
-def answer_callback_query(callback_id, text=""):
-    token = tg_token()
-    if not token:
-        return
-    try:
-        http(f"https://api.telegram.org/bot{token}/answerCallbackQuery",
-             data=urllib.parse.urlencode({"callback_query_id": callback_id, "text": text[:190]}).encode(),
-             timeout=15, retries=0)
-    except RuntimeError:
-        pass
-
-
-def edit_message_reply_markup(chat_id, message_id, keyboard):
-    """Reshapes the keyboard of an ALREADY sent message in place (without sending a new one) —
-    used by the checklist in /pending so tapping "☑️ not interested" immediately changes just
-    that button's appearance instead of spawning new messages."""
-    token = tg_token()
-    if not token:
-        return False
-    payload = {"chat_id": chat_id, "message_id": message_id, "reply_markup": json.dumps(keyboard)}
-    try:
-        http(f"https://api.telegram.org/bot{token}/editMessageReplyMarkup",
-             data=urllib.parse.urlencode(payload).encode(), timeout=15, retries=1)
-        return True
-    except RuntimeError as e:
-        log("✗ editMessageReplyMarkup:", e)
-        return False
-
-
 def handle_cv_request(chat_id, callback_id, jid, force=False):
     answer_callback_query(callback_id, t("toast_regenerating_resume") if force else t("toast_preparing_resume"))
     st = load_state()
@@ -2077,27 +1979,6 @@ def toggle_not_interested(jid):
     return result["checked"]
 
 
-def get_updates(offset, timeout=25):
-    token = tg_token()
-    if not token:
-        return []
-    params = {"timeout": timeout, "allowed_updates": json.dumps(["callback_query", "message"])}
-    if offset:
-        params["offset"] = offset
-    raw = http(f"https://api.telegram.org/bot{token}/getUpdates?{urllib.parse.urlencode(params)}",
-               timeout=timeout + 10, retries=0)
-    return json.loads(raw).get("result", [])
-
-
-def is_authorized(chat_id):
-    """This bot is personal — it only responds to its owner (TELEGRAM_CHAT_ID); it doesn't react
-    at all to any other chat/command (someone messaged the bot directly, knowing its username),
-    so no outsider can read the jobs or, worse, upload a file via /restore and overwrite the
-    state."""
-    owner = tg_chat()
-    return bool(owner) and str(chat_id) == str(owner)
-
-
 def poll_telegram_loop():
     if not tg_token():
         log("Telegram token not set — not listening for chat commands")
@@ -2474,35 +2355,6 @@ def digest_loop():
 # ───────────────────────── STATE BACKUP/RESTORE ─────────────────────────
 # Render (and similar) without a paid plan can wipe the disk on every deploy/restart — without
 # a backup that's losing the whole "seen"/"jobs"/"events" history and re-spamming old jobs.
-
-
-def fetch_telegram_file(file_id):
-    """Downloads a file's content from Telegram (getFile + file server) as text."""
-    token = tg_token()
-    if not token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN не задано")
-    raw = http(f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}", timeout=20, retries=1)
-    info = json.loads(raw)
-    file_path = info.get("result", {}).get("file_path")
-    if not file_path:
-        raise RuntimeError(f"getFile не повернув file_path: {raw[:200]}")
-    return http(f"https://api.telegram.org/file/bot{token}/{file_path}", timeout=30, retries=1)
-
-
-def pin_chat_message(chat_id, message_id):
-    """Pins the backup message so the bot can find and restore the state on its own after a
-    restart (e.g. Render Free wipes the disk every time) — getChat->pinned_message works even
-    when getUpdates has already "swallowed" the old updates and no local memory of them is left."""
-    token = tg_token()
-    if not token:
-        return
-    try:
-        http(f"https://api.telegram.org/bot{token}/pinChatMessage",
-             data=urllib.parse.urlencode({
-                 "chat_id": chat_id, "message_id": message_id, "disable_notification": True,
-             }).encode(), timeout=15, retries=1)
-    except RuntimeError as e:
-        log("✗ pinChatMessage:", e)
 
 
 def send_state_backup(chat_id, note=""):
