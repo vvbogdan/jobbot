@@ -132,6 +132,21 @@ def state_update(fn):
         return result
 
 
+def restore_state(data):
+    """Overwrites the in-memory cache with `data` (a full state dict — e.g. from a Telegram
+    backup document someone forwards back to the bot, or the auto-restore-from-pinned-message
+    fallback at startup) and immediately persists it, forcing a write even if the content happens
+    to match whatever was last saved. Callers must NOT reach into _cached_state/_last_saved_json
+    directly from outside this module — a `global` assignment in another module's namespace
+    creates an unrelated variable there instead of touching this one, silently leaving the real
+    cache (and so every load_state() call for the rest of the process) stale."""
+    global _cached_state, _last_saved_json
+    with STATE_LOCK:
+        _cached_state = data
+        _last_saved_json = None  # force save_state() below to actually persist this
+    save_state(_cached_state)
+
+
 # ───────────────────────── seen bookkeeping ─────────────────────────
 
 def _seen_ts(entry):
