@@ -15,10 +15,10 @@ import os
 
 try:
     # your own, real resume — gitignored, never committed (see resumes.py for the public example)
-    from resumes_local import BASE_RESUMES
+    from .resumes_local import BASE_RESUMES
 except ImportError:
-    from resumes import BASE_RESUMES
-from net import http
+    from .resumes import BASE_RESUMES
+from .net import http
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")

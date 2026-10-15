@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Unit tests for resume.py's pure markup parser — the only part of the Claude-API/PDF-rendering
 module that doesn't need a network call or an ANTHROPIC_API_KEY to exercise."""
-import resume
+from bot import resume
 
 
 def test_parse_resume_markup_basic_structure():

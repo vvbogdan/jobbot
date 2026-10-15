@@ -39,8 +39,8 @@ PRIORITY_TEXT = (
 # Title keywords that are never interesting (not development roles) — applies to every profile.
 GLOBAL_EXCLUDE = (
     r"\b(aso|qa|aqa|sdet|tester|test engineer|support|marketing|recruiter|sales|"
-    r"designer|analyst|product owner|product manager|project manager|scrum master|hr|accountant|copywriter|"
-    r"buyer|media buyer|community manager|user acquisition|growth manager|growth marketer)\b"
+    r"designer|analyst|product owner|product manager|scrum master|hr|accountant|copywriter|"
+    r"buyer|media buyer|community manager|user acquisition|growth manager)\b"
 )
 SENIOR_WORDS = r"\b(senior|sr\.?|lead|principal|staff|architect|head of|cto|team lead|tech lead)\b"
 
@@ -63,7 +63,7 @@ EMBEDDED_KYIV_LOCATION_RE = r"ки[їє]в|kyiv|kiev"  # catches all Ukrainian c
 PROFILES = {
     "🍎 iOS (Senior)": {
         "resume_key": "iOS",
-        "keywords": [("iOS", None), ("Mobile", r"ios|swift|swiftui|iphone|ipad|objective-c")],
+        "keywords": [("iOS", None), ("Mobile", None)],
         "must_title": r"\b(ios|swift|swiftui|iphone|ipad|apple|objective-c|macos|mobile)\b",
         "exclude_title": r"\b(junior|jr\.?|intern|trainee|android|kotlin|flutter|react native|unity)\b",
         "max_years": None,

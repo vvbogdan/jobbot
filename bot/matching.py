@@ -14,8 +14,8 @@ import re
 import time
 from datetime import datetime
 
-from i18n import t
-from config import (
+from .i18n import t
+from .config import (
     GLOBAL_EXCLUDE, PRIORITY_TEXT, EMBEDDED_PRIORITY_LOCATION_RE, EMBEDDED_KYIV_LOCATION_RE,
 )
 

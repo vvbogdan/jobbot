@@ -3,7 +3,7 @@
 that doesn't need a real network call or credentials, and the part that caused two real
 production bugs this project already hit (see firebase_store.py's own comments): forbidden
 characters in dict keys, and Firebase silently dropping `None` values."""
-import firebase_store as fs
+from bot import firebase_store as fs
 
 
 def test_encode_key_escapes_forbidden_chars():

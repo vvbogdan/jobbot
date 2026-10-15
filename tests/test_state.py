@@ -7,7 +7,7 @@ Firebase, which belongs in an integration-level check, not a unit test.
 """
 from datetime import datetime, timezone
 
-import state
+from bot import state
 
 
 # ───────────────────────── seen/reopen bookkeeping ─────────────────────────

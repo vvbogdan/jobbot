@@ -15,8 +15,8 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-from logutil import log
-from net import http
+from .logutil import log
+from .net import http
 
 
 def tg_token():

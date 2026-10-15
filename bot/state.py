@@ -20,11 +20,11 @@ import urllib.parse
 import zlib
 from pathlib import Path
 
-import firebase_store
-from logutil import log
-from i18n import t
-from config import PROFILES, SENIOR_WORDS
-from matching import DEDUP_FINGERPRINT_DAYS
+from . import firebase_store
+from .logutil import log
+from .i18n import t
+from .config import PROFILES, SENIOR_WORDS
+from .matching import DEDUP_FINGERPRINT_DAYS
 
 STATE_FILE = Path(os.environ.get("JOBBOT_STATE", "state.json"))
 STATE_LOCK = threading.Lock()

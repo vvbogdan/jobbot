@@ -86,32 +86,32 @@ except ImportError:  # noqa: BLE001  (Python < 3.9 — quiet hours just won't ap
     ZoneInfo = None
 
 try:
-    # your own, real resume — gitignored, never committed (see resumes.py for the public example)
-    from resumes_local import BASE_RESUMES
+    # your own, real resume — gitignored, never committed (see bot/resumes.py for the public example)
+    from bot.resumes_local import BASE_RESUMES
 except ImportError:
-    from resumes import BASE_RESUMES
-from i18n import t
-from config import (
+    from bot.resumes import BASE_RESUMES
+from bot.i18n import t
+from bot.config import (
     PROFILES, GLOBAL_EXCLUDE, SENIOR_WORDS, PRIORITY_TEXT,
     EMBEDDED_PRIORITY_LOCATION_RE, EMBEDDED_KYIV_LOCATION_RE,
     MAX_AGE_DAYS, FIRST_RUN_LIMIT,
 )
-from net import http, strip_html
-from sources import PROVIDERS
-import firebase_store
-from logutil import log
-from telegram_api import (
+from bot.net import http, strip_html
+from bot.sources import PROVIDERS
+from bot import firebase_store
+from bot.logutil import log
+from bot.telegram_api import (
     tg_token, tg_chat, is_authorized, send_telegram_plain, multipart_encode,
     send_telegram_document, answer_callback_query, edit_message_reply_markup,
     get_updates, fetch_telegram_file, pin_chat_message,
 )
-from matching import (
+from bot.matching import (
     DEDUP_FINGERPRINT_DAYS, normalize_title, desc_fingerprint, find_duplicate_posting,
     job_id, years_required, is_closed, extract_company, evaluate, apply_link, is_priority,
     embedded_location_tag, find_salary, find_deadline, job_priority_and_location, job_badge,
     format_age,
 )
-from state import (
+from bot.state import (
     STATE_FILE, STATE_LOCK, JOBS_CACHE_DAYS, SEEN_RETENTION_DAYS, SEEN_LOG_DAYS,
     load_state, save_state, state_update, _seen_ts, _seen_pub, mark_seen, mark_seen_silent,
     SETTINGS_SCHEMA, BOOL_SETTINGS, get_setting, set_setting, build_settings_text,
@@ -119,7 +119,7 @@ from state import (
     get_profiles, build_profile_from_wizard, add_profile, delete_profile_by_crc,
     build_profiles_text, profiles_keyboard,
 )
-from resume import (
+from bot.resume import (
     ANTHROPIC_API_KEY, call_claude, adapt_resume, generate_cover_letter,
     parse_resume_markup, render_resume_pdf,
 )

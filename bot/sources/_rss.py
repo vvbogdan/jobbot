@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 
-from net import strip_html
+from ..net import strip_html
 
 
 def parse_rss(xml_text):

@@ -7,7 +7,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from net import http, strip_html
+from ..net import http, strip_html
 
 from ._base import Provider
 

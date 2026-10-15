@@ -2,7 +2,7 @@
 """DOU — https://jobs.dou.ua, public RSS, one feed per category, no login required."""
 import urllib.parse
 
-from net import http
+from ..net import http
 
 from ._base import Provider
 from ._rss import parse_rss

@@ -4,7 +4,7 @@ Python 3.8+. Reads public RSS feeds (no login needed). One external dependency �
 (PDF generation).
 
 ## Quick start (deploy on Render, ~10 minutes)
-1. Edit `config.py` — set your own search profiles (see section 11).
+1. Edit `bot/config.py` — set your own search profiles (see section 11).
 2. Create a Telegram bot via @BotFather, get the **token** (see section 1).
 3. Get your **chat id** (see section 1).
 4. Get an Anthropic API key at console.anthropic.com (see section 2).
@@ -58,11 +58,11 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
 - The result is cached per job: clicking the same button again shows the already-generated
   version instantly, **without** a new Claude API call (saves both time and money). There's a
   separate "🔄 Regenerate" button under the result if you want a fresh version.
-- **Base resume:** the repo's `resumes.py` is a public example (a made-up "Frontend" one),
-  since the repo is public. Put your real resume in `resumes_local.py` next to it (same
+- **Base resume:** the repo's `bot/resumes.py` is a public example (a made-up "Frontend" one),
+  since the repo is public. Put your real resume in `bot/resumes_local.py` next to it (same
   `BASE_RESUMES` shape) — this file is in `.gitignore`, never committed, and `jobbot.py`
-  automatically uses it instead of `resumes.py` when it exists. Update the text in
-  `resumes_local.py` whenever your experience changes.
+  automatically uses it instead of `bot/resumes.py` when it exists. Update the text in
+  `bot/resumes_local.py` whenever your experience changes.
 - Default model: `claude-sonnet-5`. Change it via the `ANTHROPIC_MODEL` environment variable.
 - Without `ANTHROPIC_API_KEY` the buttons still work but reply that the feature is disabled —
   the rest of the bot (pushes) keeps working as usual.
@@ -160,7 +160,7 @@ Alternative/extra push channel: `export NTFY_TOPIC=my-secret-topic` + the ntfy a
   file) without touching the env vars; `/set use_firebase 1` turns it back on. Default is `1`
   whenever both env vars above are set.
 - Firebase Realtime Database keys can't contain `. # $ [ ] /` — some job IDs can (Jooble/RemoteOK
-  use the full job URL as their ID, slashes and all). `firebase_store.py` escapes these
+  use the full job URL as their ID, slashes and all). `bot/firebase_store.py` escapes these
   characters transparently on every read/write, so this never needs any attention — mentioned
   here only because an early version didn't do this and failed every write with a bare
   `400 Bad Request`. Confirmed working in production as of October 2026.
@@ -238,15 +238,15 @@ sleeping:
 
 ## 10. Configuration
 `GLOBAL_EXCLUDE` (roles that are never of interest, for any profile), `MAX_AGE_DAYS`,
-`FIRST_RUN_LIMIT` (first run only sends the N most recent) — in `config.py`. The base resume
-for the "Tailor resume" button is separate, in `resumes.py`/`resumes_local.py` (section 4).
+`FIRST_RUN_LIMIT` (first run only sends the N most recent) — in `bot/config.py`. The base resume
+for the "Tailor resume" button is separate, in `bot/resumes.py`/`bot/resumes_local.py` (section 4).
 The "Open" button leads straight to "Apply" (DOU) or the job page (Djinni).
 
 The search profiles themselves (iOS, Node.js, Embedded/Linux, Java, Python by default) are now
 edited directly from Telegram — no code changes or redeploy needed, see section 11.
 
 ## 11. Search profiles — /profiles, /addprofile
-`config.py` with its profiles is just the initial seed set for the first run. On first
+`bot/config.py` with its profiles is just the initial seed set for the first run. On first
 startup it's copied into `state.json`, and from then on `state.json` is the single source of
 truth — that's where the bot adds/removes profiles, and that's the file that gets backed up
 (section 7) — so your set of profiles won't get lost if the disk is reset.
@@ -254,7 +254,7 @@ truth — that's where the bot adds/removes profiles, and that's the file that g
 - **`/profiles`** — list of current profiles (name, resume, how many feeds) with a 🗑 delete
   button under each.
 - **`/addprofile`** — a step-by-step wizard: profile name → resume key (for the "Tailor resume"
-  button; if there's no matching resume in `resumes.py` that's fine, the button will just be
+  button; if there's no matching resume in `bot/resumes.py` that's fine, the button will just be
   disabled for this profile) → keywords for DOU/Djinni feeds (each word = one DOU feed and one
   Djinni feed) → words that must appear in the title (or "-") → exclusion words (or "-") →
   exclude Senior/Lead positions (yes/no) → max years of experience (or "-"). No regex to write —
@@ -288,13 +288,13 @@ build command: `pip install -r requirements.txt`.
 | `FIREBASE_DB_URL` / `FIREBASE_SERVICE_ACCOUNT_JSON` | optional | See section 7b — only needed for the Firebase persistence backend. |
 
 ## 13. Bot language (i18n)
-All text the bot sends to Telegram/ntfy (pushes, buttons, command replies) lives in `i18n.py` —
+All text the bot sends to Telegram/ntfy (pushes, buttons, command replies) lives in `bot/i18n.py` —
 a `TRANSLATIONS` dict with language sections (currently `uk` and `en`). The language is chosen
 via the `BOT_LANG` environment variable (default `uk`) and is fixed once at startup — there's
 no live language switching, one deployment = one language.
 
 To deploy an English-language version: set `BOT_LANG=en` on Render. To add another language —
-copy the `"uk": { ... }` block in `i18n.py`, translate only the values (leave the keys and
+copy the `"uk": { ... }` block in `bot/i18n.py`, translate only the values (leave the keys and
 `{placeholders}`/HTML tags like `<b>`, `<a href=...>` as they are — the code fills those in,
 not the translation), and add the new language as another section in `TRANSLATIONS`.
 
@@ -302,7 +302,7 @@ not the translation), and add the new language as another section in `TRANSLATIO
 - Besides DOU and Djinni, three more sources can be turned on — all off by default.
 - Turn one on with `/set source_jooble 1` / `/set source_remoteok 1` / `/set source_workua 1` in
   Telegram (no redeploy needed).
-- Each profile's `keywords` field in `config.py` (or the keywords you gave `/addprofile`) drives
+- Each profile's `keywords` field in `bot/config.py` (or the keywords you gave `/addprofile`) drives
   all three; nothing else to configure per-profile.
 - **Jooble** — needs a `JOOBLE_API_KEY` env var (sign up at jooble.org/api/about); location
   defaults to `Україна`, override with `JOOBLE_LOCATION`.

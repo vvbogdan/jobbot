@@ -9,7 +9,7 @@ import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-from net import http
+from ..net import http
 
 from ._base import Provider
 

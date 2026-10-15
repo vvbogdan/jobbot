@@ -8,7 +8,7 @@ import re
 import urllib.parse
 from datetime import datetime
 
-from net import http, strip_html
+from ..net import http, strip_html
 
 from ._base import Provider
 

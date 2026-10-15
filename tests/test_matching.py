@@ -5,8 +5,8 @@ extraction, and evaluate()'s per-profile filter pipeline). Deliberately skips an
 talks to Telegram, Anthropic, Firebase, or the job feeds — those aren't exercised by this
 suite, only the regex/logic helpers that decide which jobs get through.
 """
-import matching
-from config import PROFILES
+from bot import matching
+from bot.config import PROFILES
 
 
 def make_item(title="", desc="", pub=None, link="https://dou.ua/vacancies/123/"):
