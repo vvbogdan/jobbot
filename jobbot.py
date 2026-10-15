@@ -158,6 +158,16 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 APPLICANT_NAME = re.sub(r"[^\w\-]+", "", os.environ.get("APPLICANT_NAME", "Resume"))
 
+# Render sets RENDER_GIT_COMMIT automatically on every deploy — surfacing it (short form) in
+# /stats is how to tell "yes, the latest fix actually deployed" apart from "still on the old
+# build" without digging through the Render dashboard. PROCESS_STARTED is just this process's
+# own start time (module import time) — "how long has it been running without a restart".
+BOT_VERSION = os.environ.get("RENDER_GIT_COMMIT", "")[:7] or "dev"
+PROCESS_STARTED = time.time()
+# Populated by run_once() after every real (non-dry) run — what /stats' "last run" section
+# reads. None until the first run completes (e.g. brand new process, or still mid-startup).
+LAST_RUN_STATS = None
+
 # Rough heuristic for the company name — better to show nothing than to make one up
 COMPANY_AT_RE = re.compile(
     r"\bat\s+([A-ZА-ЯІЇЄҐ][\w&.'’\-]+(?:\s+[A-ZА-ЯІЇЄҐ0-9][\w&.'’\-]*){0,3})\s*$"
@@ -293,24 +303,28 @@ def extract_company(title, desc):
 
 
 def evaluate(profile, feed_must_text, item):
+    """Returns (meta, None) if the job passes every filter for this profile/keyword, or
+    (None, reason) naming which filter rejected it — the reason feeds the per-run breakdown in
+    /stats (section "last run") so "190 matches, 0 new" has an actual explanation instead of
+    being a black box."""
     title, desc = item["title"], item["desc"]
     if is_closed(title, desc):
-        return None
+        return None, "closed"
     if re.search(GLOBAL_EXCLUDE, title, re.I):
-        return None
+        return None, "global_exclude"
     if profile.get("exclude_title") and re.search(profile["exclude_title"], title, re.I):
-        return None
+        return None, "exclude_title"
     if profile.get("must_title") and not re.search(profile["must_title"], title, re.I):
-        return None
+        return None, "must_title"
     if feed_must_text and not re.search(feed_must_text, title + " " + desc, re.I):
-        return None
+        return None, "must_text"
     yrs = years_required(desc)
     if profile.get("max_years") and yrs and yrs > profile["max_years"]:
-        return None
+        return None, "max_years"
     meta = {"years": yrs, "company": extract_company(title, desc)}
     if profile.get("resume_key") == "Embedded":
         meta["location_tag"] = embedded_location_tag(title, desc)
-    return meta
+    return meta, None
 
 
 def apply_link(link):
@@ -1015,11 +1029,13 @@ def _note_feed_fail(url, src):
         )
 
 
-def _collect_item(found, label, prof, must_text, item, src):
+def _collect_item(found, label, prof, must_text, item, src, counts):
     if not item["link"]:
+        counts["no_link"] = counts.get("no_link", 0) + 1
         return
-    meta = evaluate(prof, must_text, item)
+    meta, reason = evaluate(prof, must_text, item)
     if meta is None:
+        counts[reason] = counts.get(reason, 0) + 1
         return
     jid = job_id(item["link"])
     # Besides the general AI-agentic heuristic (is_priority): for Embedded — Lviv/remote
@@ -1037,12 +1053,15 @@ def _collect_item(found, label, prof, must_text, item, src):
 
 
 def collect():
-    """Returns {id: {item, src, labels, meta, resume_key}} — jobs matching ≥1 profile. Loops
-    every profile's "keywords" against every active provider in sources.PROVIDERS (DOU/Djinni
-    are always active; Jooble/RemoteOK/Work.ua only when their /set source_* toggle is on) —
-    see sources/__init__.py for what a provider is and how to add one."""
+    """Returns ({id: {item, src, labels, meta, resume_key}}, counts) — jobs matching ≥1 profile,
+    plus a breakdown of how many raw feed items were rejected and why (see evaluate()'s reason
+    strings) — this is what /stats' "last run" section is built from. Loops every profile's
+    "keywords" against every active provider in sources.PROVIDERS (DOU/Djinni are always active;
+    Jooble/RemoteOK/Work.ua only when their /set source_* toggle is on) — see sources/__init__.py
+    for what a provider is and how to add one."""
     found = {}
     fetched = {}
+    counts = {}
     for label, prof in get_profiles().items():
         for keyword, must_text in prof.get("keywords", []):
             for provider in PROVIDERS:
@@ -1058,8 +1077,8 @@ def collect():
                         fetched[cache_key] = []
                         _note_feed_fail(cache_key, provider.name)
                 for item in fetched[cache_key]:
-                    _collect_item(found, label, prof, must_text, item, provider.name)
-    return dedup_cross_site(found)
+                    _collect_item(found, label, prof, must_text, item, provider.name, counts)
+    return dedup_cross_site(found), counts
 
 
 def dedup_cross_site(found):
@@ -1177,7 +1196,7 @@ def send_one(jid, rec, dry, st):
 
 def run_once(dry=False):
     st = load_state()
-    found = collect()
+    found, filter_counts = collect()
     now = datetime.now(timezone.utc)
     fresh = []
     for jid, rec in found.items():
@@ -1185,13 +1204,17 @@ def run_once(dry=False):
         if pub and now - pub > timedelta(days=MAX_AGE_DAYS):
             if jid not in st["seen"]:
                 mark_seen_silent(st, jid, rec, t("reason_too_old", days=MAX_AGE_DAYS))
+                filter_counts["too_old"] = filter_counts.get("too_old", 0) + 1
             continue
         if jid not in st["seen"]:
             when = find_duplicate_posting(st, rec["item"]["desc"])
             if when:
                 mark_seen_silent(st, jid, rec, t("reason_duplicate_posting", when=when))
+                filter_counts["duplicate_posting"] = filter_counts.get("duplicate_posting", 0) + 1
                 continue
             fresh.append((jid, rec))
+        else:
+            filter_counts["already_seen"] = filter_counts.get("already_seen", 0) + 1
     # priority jobs (AI agentic / Claude Code etc.) go first in the batch; within a group — oldest to newest
     fresh.sort(key=lambda x: (0 if x[1]["priority"] else 1, x[1]["item"]["pub"] or now))
 
@@ -1199,6 +1222,7 @@ def run_once(dry=False):
     if first_run and len(fresh) > FIRST_RUN_LIMIT:
         for jid, rec in fresh[:-FIRST_RUN_LIMIT]:
             mark_seen_silent(st, jid, rec, t("reason_first_run_limit", limit=FIRST_RUN_LIMIT))
+            filter_counts["first_run_limit"] = filter_counts.get("first_run_limit", 0) + 1
         fresh = fresh[-FIRST_RUN_LIMIT:]
 
     quiet = (not dry) and is_quiet_now()
@@ -1240,6 +1264,12 @@ def run_once(dry=False):
     extra = f", queued (quiet hours): {len(queued)}" if quiet else ""
     extra += f", morning digest: {flushed}" if flushed else ""
     log(f"matches: {len(found)}, new: {len(fresh)}, sent: {sent}{extra}")
+    if not dry:
+        global LAST_RUN_STATS
+        LAST_RUN_STATS = {
+            "ts": time.time(), "found": len(found), "new": len(fresh), "sent": sent,
+            "filtered": filter_counts,
+        }
 
 
 # ───────────────────────── RESUME TAILORING (Claude API + PDF) ─────────────────────────
@@ -1671,6 +1701,27 @@ def build_stats_text():
     jobs = st.get("jobs", {})
     pending = sum(1 for j in jobs.values() if not j.get("applied") and not j.get("not_interested"))
     lines.append(t("stats_pending", n=pending))
+
+    # version/uptime — "did the latest fix actually deploy" without checking the Render
+    # dashboard, and "last run" — why "N matches" didn't turn into new pushes, broken down by
+    # filter reason, instead of that being a black box (see evaluate()/collect()).
+    up = time.time() - PROCESS_STARTED
+    uptime_str = t("stats_uptime_fmt", h=int(up // 3600), m=int((up % 3600) // 60))
+    lines.append("")
+    lines.append(t("stats_version_line", version=BOT_VERSION, uptime=uptime_str))
+    if LAST_RUN_STATS is None:
+        lines.append(t("stats_last_run_pending"))
+    else:
+        run_time = datetime.fromtimestamp(LAST_RUN_STATS["ts"]).strftime("%H:%M:%S")
+        lines.append(t("stats_last_run_header", time=run_time, found=LAST_RUN_STATS["found"],
+                       new=LAST_RUN_STATS["new"], sent=LAST_RUN_STATS["sent"]))
+        filtered = LAST_RUN_STATS["filtered"]
+        if filtered:
+            parts = [
+                f"{t('filter_reason_' + reason)}: {n}"
+                for reason, n in sorted(filtered.items(), key=lambda x: -x[1])
+            ]
+            lines.append(t("stats_last_run_filtered_prefix") + ", ".join(parts))
     return "\n".join(lines)
 
 
