@@ -36,4 +36,5 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        pytest
+        # exit code 5 = "no tests collected" (there's no test suite yet) — not a failure
+        pytest; code=$?; if [ "$code" -eq 5 ]; then exit 0; fi; exit "$code"
