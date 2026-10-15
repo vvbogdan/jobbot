@@ -3,6 +3,23 @@
 Python 3.8+. Reads public RSS feeds (no login needed). One external dependency — `reportlab`
 (PDF generation).
 
+## Quick start (deploy on Render, ~10 minutes)
+1. Edit `config.py` — set your own search profiles (see section 11).
+2. Create a Telegram bot via @BotFather, get the **token** (see section 1).
+3. Get your **chat id** (see section 1).
+4. Get an Anthropic API key at console.anthropic.com (see section 2).
+5. Push the repo to your own GitHub account.
+6. On [render.com](https://render.com), create a new **Web Service** from that repo.
+7. Build command: `pip install -r requirements.txt`.
+8. Start command: `python3 jobbot.py --loop 60`.
+9. Add the environment variables `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
+   `ANTHROPIC_API_KEY` (see the full table in section 12).
+10. Deploy. Send `/start` to the bot in Telegram to confirm it's alive.
+11. (Optional, recommended) Set up Firebase so state survives a disk wipe (section 7b).
+12. (Optional, recommended) Set up UptimeRobot so Render doesn't fall asleep (section 9).
+
+Done — the bot now checks for new jobs every minute and pushes matches to your Telegram chat.
+
 ## 1. Telegram bot (2 minutes)
 1. In Telegram, message @BotFather → `/newbot` → you'll get a **token**.
 2. Send your bot anything (`/start`).
